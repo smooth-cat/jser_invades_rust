@@ -1,16 +1,28 @@
 # JSer 入侵 Rust
-## 简介
+# 第 1 集 创建项目
 
-1. 本项目采用对比手法，以 JS 为主逐个比较 两者的语法来达到学习 Rust 的目的
-2. 本项目采用分 一个分支 对应 一个大知识点的方式进行学习
-3. 可以按照分支知识点标号挨个进行学习
+本集不提供现成代码，旨在让玩家们体验创建项目的流程。第 1 集之后全为现成代码
 
-## Main README 为 Rust 环境安装教程
+1. 用 cargo 命令行 初始化项目
+   ```shell
+   # 创建 demo 项目，不初始化 git (我们已经有了)
+   cargo init --lib --name demo --vcs none
+   ```
 
-1. 安装 Rust 编译器进入 https://rustup.rs/ 根据官网提示安装即可
-2. 安装 vscode 插件，在扩展商店中分别搜索以下插件并安装 (PS: 目前想要在 VSC 上爽 Rust 用至少要这三个插件)
-   1. rust-analyzer 负责代码诊断
-   2. Rust Syntax 负责代码高亮
-   3. CodeLLDB 负责 Debug
+2. 新建 `src/main.rs` 文件，写入以下代码
+   ```rust
+   fn main() {
+   	println!("JSer 入侵 Rust");
+   }
+   ```
 
-至此环境安装完毕，可以切换到其他分支开始学习 rust 使用
+3. 命令行执行 `cargo run`  即可看到输出结果
+   ```rust
+   // 如果你的 vscode 开启了 Code Lens (在vscode配置项搜索 "Code Lens" 即可打开这个 run 按钮，前提是按 main 分支 README 正确安装了插件)
+   // 👇 你会看到这个 run 按钮点击也可以执行代码
+   run | debug
+   fn main() {
+   	println!("JSer 入侵 Rust");
+   }
+   ```
+
