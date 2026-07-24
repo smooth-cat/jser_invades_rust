@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rust 内存空间布局</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel-2: #1c2230;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --stack: #58a6ff;
+    --heap: #f78166;
+    --data: #d2a8ff;
+    --bss: #a371f7;
+    --code: #7ee787;
+    --arrow: #ffa657;
+    --mono: "SF Mono", "JetBrains Mono", "Fira Code", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    line-height: 1.7;
+    padding: 40px 20px 80px;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  h1 { font-size: 28px; margin: 0 0 6px; }
+  h2 { font-size: 20px; margin: 48px 0 14px; border-left: 4px solid var(--stack); padding-left: 12px; }
+  .sub { color: var(--muted); margin: 0 0 30px; }
+  code, .mono { font-family: var(--mono); }
+  p code, li code, td code {
+    background: #21262d; padding: 2px 6px; border-radius: 5px;
+    font-size: 0.9em; color: #ffa657;
+  }
+
+  /* ---------- 主布局图 ---------- */
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: 24px;
+    align-items: start;
+  }
+  .addr-col {
+    display: flex; flex-direction: column; justify-content: space-between;
+    font-family: var(--mono); font-size: 12px; color: var(--muted);
+    padding: 6px 0; text-align: right;
+  }
+  .segments { display: flex; flex-direction: column; gap: 10px; }
+  .seg {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    background: var(--panel);
+    position: relative;
+    overflow: hidden;
+  }
+  .seg::before {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 5px;
+  }
+  .seg .name { font-weight: 700; font-size: 16px; }
+  .seg .en { color: var(--muted); font-family: var(--mono); font-size: 12px; margin-left: 8px; }
+  .seg .desc { color: var(--muted); font-size: 13px; margin-top: 6px; }
+  .seg .tags { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .tag {
+    font-family: var(--mono); font-size: 11px; padding: 2px 8px;
+    border-radius: 20px; background: #21262d; border: 1px solid var(--border);
+  }
+  .seg.stack::before { background: var(--stack); }
+  .seg.stack .name { color: var(--stack); }
+  .seg.heap::before { background: var(--heap); }
+  .seg.heap .name { color: var(--heap); }
+  .seg.data::before { background: var(--data); }
+  .seg.data .name { color: var(--data); }
+  .seg.bss::before { background: var(--bss); }
+  .seg.bss .name { color: var(--bss); }
+  .seg.code::before { background: var(--code); }
+  .seg.code .name { color: var(--code); }
+
+  .heap-box {
+    border: 1px dashed var(--heap); border-radius: 8px;
+    margin-top: 10px; padding: 10px 12px; font-family: var(--mono);
+    font-size: 12px; color: var(--heap); background: rgba(247,129,102,0.06);
+  }
+  .arrow-note {
+    grid-column: 1 / -1; font-size: 13px; color: var(--muted);
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px 14px;
+  }
+  .arrow-note b { color: var(--arrow); }
+
+  /* ---------- 代码 → 内存 映射 ---------- */
+  .map { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  pre {
+    background: #0a0e14; border: 1px solid var(--border); border-radius: 10px;
+    padding: 16px; overflow-x: auto; font-family: var(--mono);
+    font-size: 13px; line-height: 1.6; margin: 0;
+  }
+  .kw { color: #ff7b72; }
+  .ty { color: #79c0ff; }
+  .str { color: #a5d6ff; }
+  .num { color: #79c0ff; }
+  .cm { color: #8b949e; font-style: italic; }
+  .fn { color: #d2a8ff; }
+
+  .memtable { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .memtable th, .memtable td {
+    border: 1px solid var(--border); padding: 8px 10px; text-align: left;
+    font-family: var(--mono);
+  }
+  .memtable th { background: var(--panel-2); color: var(--muted); font-weight: 600; }
+  .memtable td { background: var(--panel); }
+  .pill { padding: 1px 8px; border-radius: 12px; font-size: 11px; }
+  .pill.stack { background: rgba(88,166,255,0.15); color: var(--stack); }
+  .pill.heap { background: rgba(247,129,102,0.15); color: var(--heap); }
+  .pill.data { background: rgba(210,168,255,0.15); color: var(--data); }
+  .pill.code { background: rgba(126,231,135,0.15); color: var(--code); }
+
+  /* ---------- 对比表 ---------- */
+  table.cmp { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 10px; }
+  table.cmp th, table.cmp td { border: 1px solid var(--border); padding: 10px 12px; text-align: left; }
+  table.cmp th { background: var(--panel-2); }
+  table.cmp td { background: var(--panel); }
+  table.cmp tr td:first-child { font-family: var(--mono); color: #ffa657; white-space: nowrap; }
+
+  .note {
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-left: 4px solid var(--arrow); border-radius: 8px;
+    padding: 14px 16px; margin-top: 16px; font-size: 14px;
+  }
+  ul { padding-left: 22px; }
+  li { margin: 6px 0; }
+  .footer { color: var(--muted); font-size: 12px; margin-top: 50px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Rust 内存空间布局</h1>
+  <p class="sub">一个 Rust 进程启动后，操作系统分给它的虚拟地址空间主要分为 5 块。下面按「高地址 → 低地址」排列（和大多数平台的实际方向一致）。</p>
+
+  <!-- ============ 主布局图 ============ -->
+  <div class="layout">
+    <div class="segments">
+
+      <div class="seg stack">
+        <div><span class="name">栈</span><span class="en">Stack</span></div>
+        <div class="desc">函数调用帧、局部变量、参数、返回地址。自动分配/释放，速度极快，大小在编译期已知。<b>向低地址增长 ↓</b></div>
+        <div class="tags">
+          <span class="tag">i32 / f64 / bool</span>
+          <span class="tag">struct（无堆字段时）</span>
+          <span class="tag">String/Vec 的「头部」(ptr,len,cap)</span>
+          <span class="tag">&amp;T 引用</span>
+          <span class="tag">Box&lt;T&gt; 的指针</span>
+        </div>
+      </div>
+
+      <div class="seg heap">
+        <div><span class="name">堆</span><span class="en">Heap</span></div>
+        <div class="desc">运行时动态分配，大小可变。通过分配器（Rust 默认用系统 allocator）申请，由所有者负责释放（RAII / drop）。<b>向高地址增长 ↑</b></div>
+        <div class="tags">
+          <span class="tag">String 的字节缓冲</span>
+          <span class="tag">Vec&lt;T&gt; 的元素</span>
+          <span class="tag">Box&lt;T&gt; 指向的数据</span>
+          <span class="tag">Rc / Arc 的计数+数据</span>
+        </div>
+        <div class="heap-box">
+          String 在栈上只是 { ptr, len, cap } 三个字段；<br>
+          ptr 这根箭头 → 指向这里真正的字符数据。
+        </div>
+      </div>
+
+      <div class="seg data">
+        <div><span class="name">已初始化数据段</span><span class="en">.data / .rodata</span></div>
+        <div class="desc">编译期就确定初值的全局/静态数据。<code>.rodata</code> 只读（字符串字面量、不可变 static），<code>.data</code> 可读写（可变 static）。</div>
+        <div class="tags">
+          <span class="tag">字符串字面量 "hello"</span>
+          <span class="tag">static 变量</span>
+          <span class="tag">const（内联，通常不占独立位置）</span>
+        </div>
+      </div>
+
+      <div class="seg bss">
+        <div><span class="name">未初始化数据段</span><span class="en">.bss</span></div>
+        <div class="desc">初值为 0 或未初始化的全局/静态数据。二进制里不存实际内容，只记录大小，加载时清零，省空间。</div>
+        <div class="tags">
+          <span class="tag">static mut 未初始化</span>
+          <span class="tag">零初始化的全局数组</span>
+        </div>
+      </div>
+
+      <div class="seg code">
+        <div><span class="name">代码段</span><span class="en">.text</span></div>
+        <div class="desc">编译后的机器指令。只读、可共享（同一程序多个进程共用一份）。</div>
+        <div class="tags">
+          <span class="tag">fn 编译产物</span>
+          <span class="tag">泛型单态化后的各份代码</span>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="addr-col">
+      <div>高地址 ▲<br><span style="opacity:.5">（内核空间）</span></div>
+      <div style="align-self:center; writing-mode:vertical-rl; letter-spacing:4px; opacity:.6">虚拟地址空间</div>
+      <div>低地址 ▼<br><span style="opacity:.5">（程序入口）</span></div>
+    </div>
+
+    <div class="arrow-note">
+      <b>核心心智模型：</b>栈上放「已知大小、随函数生死」的数据；堆上放「运行时才知道大小、需要拥有者管理」的数据。
+      <code>String</code> / <code>Vec</code> / <code>Box</code> 都是「栈上一个指针头 + 堆上一块数据」的组合，箭头从栈指向堆。
+    </div>
+  </div>
+
+  <!-- ============ 代码 → 内存 映射 ============ -->
+  <h2>一段代码，数据各去哪了</h2>
+  <div class="map">
+<pre><span class="kw">static</span> GREETING: &amp;<span class="ty">str</span> = <span class="str">"hi"</span>;   <span class="cm">// ① 字面量 → .rodata</span>
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">let</span> n: <span class="ty">i32</span> = <span class="num">42</span>;            <span class="cm">// ② 值 → 栈</span>
+    <span class="kw">let</span> s = <span class="ty">String</span>::<span class="fn">from</span>(<span class="str">"hello"</span>); <span class="cm">// ③ 头在栈，字节在堆</span>
+    <span class="kw">let</span> b = <span class="ty">Box</span>::<span class="fn">new</span>(<span class="num">7</span>);         <span class="cm">// ④ 指针在栈，7 在堆</span>
+    <span class="fn">println</span>(<span class="str">"{GREETING}"</span>);       <span class="cm">// ⑤ 指令 → .text</span>
+}</pre>
+
+    <table class="memtable">
+      <tr><th>代码</th><th>数据位置</th></tr>
+      <tr><td>① <code>"hi"</code></td><td><span class="pill data">.rodata 只读段</span></td></tr>
+      <tr><td>② <code>n = 42</code></td><td><span class="pill stack">栈</span></td></tr>
+      <tr><td>③ <code>String</code> 头部</td><td><span class="pill stack">栈</span> (ptr,len,cap)</td></tr>
+      <tr><td>③ <code>String</code> 字节</td><td><span class="pill heap">堆</span> ("hello")</td></tr>
+      <tr><td>④ <code>Box</code> 指针</td><td><span class="pill stack">栈</span></td></tr>
+      <tr><td>④ 整数 <code>7</code></td><td><span class="pill heap">堆</span></td></tr>
+      <tr><td>⑤ 函数指令</td><td><span class="pill code">.text 代码段</span></td></tr>
+    </table>
+  </div>
+
+  <!-- ============ 对照表 ============ -->
+  <h2>常见类型放哪、多大</h2>
+  <table class="cmp">
+    <tr><th>类型 / 写法</th><th>数据位置</th><th>栈上大小</th><th>说明</th></tr>
+    <tr><td>i32 / f64 / bool / char</td><td>栈</td><td>4 / 8 / 1 / 4 字节</td><td>纯值，编译期已知大小</td></tr>
+    <tr><td>[T; N] 定长数组</td><td>栈</td><td>N × size_of(T)</td><td>整体在栈上</td></tr>
+    <tr><td>&amp;T / &amp;mut T</td><td>栈</td><td>8（胖指针 16）</td><td>只是个指针，数据在别处</td></tr>
+    <tr><td>&amp;str（字面量）</td><td>栈指针 → .rodata</td><td>16（胖指针）</td><td>指向只读段，'static</td></tr>
+    <tr><td>String</td><td>栈头部 → 堆缓冲</td><td>24</td><td>ptr+len+cap，数据在堆</td></tr>
+    <tr><td>Vec&lt;T&gt;</td><td>栈头部 → 堆元素</td><td>24</td><td>同 String 结构</td></tr>
+    <tr><td>Box&lt;T&gt;</td><td>栈指针 → 堆</td><td>8</td><td>独占堆内存</td></tr>
+    <tr><td>static 变量</td><td>.data / .rodata</td><td>—</td><td>固定地址，全程存在</td></tr>
+    <tr><td>const</td><td>无固定位置</td><td>—</td><td>编译期内联，使用点复制</td></tr>
+  </table>
+
+  <div class="note">
+    <b>和 JS 对照：</b>JS 几乎所有「对象/字符串/数组」都在堆上，变量只是引用；基本类型（number/bool）按值传递。
+    Rust 默认把已知大小的值直接放栈上（包括 struct 和数组），只有 <code>String</code>/<code>Vec</code>/<code>Box</code> 这类「拥有型容器」才把数据放堆上。
+    这也是为什么 Rust 强调「所有权」——堆数据的释放责任必须明确归属某个栈上的所有者，函数返回时随所有者一起 drop。
+  </div>
+
+  <div class="footer">Rust 内存布局图解 · 2026-07-24 · 暗色主题</div>
+</div>
+</body>
+</html>

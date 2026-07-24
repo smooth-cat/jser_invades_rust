@@ -1,64 +1,22 @@
 # JSer 入侵 Rust
-# 第 2 集 模块化
+# 第 3集 Copy 类型(基础数据类型)
 
-## 为什么先讲模块化
+## 什么是 Copy 类型
 
-1. 从大局观来讲，了解一个项目，最先了解它的 代码组织。模块化 是 代码组织 的具体实现。
-2. 相较于 JS ESM 所见即所得的模块化，Rust 的模块化有精心的设计以及默认的约定，这些需要 攻城🦁 们掌握。
+1. 类似于 js 的基础数据类型，对于 `=` 操作符执行到是 复制操作
 
-## 项目结构
+## Copy 类型有哪些
 
-```
-jser_invades_rust
-├── Cargo.toml                 # 包名 demo
-├── src                       
-│   ├── main.rs                # 程序入口，use demo::algorithm
-│   ├── lib.rs                 # 包入口，导出 pub mod algorithm / util
-│   ├── algorithm
-│   │   └── mod.rs             # 导出 pub fn fib(n); 导入 use crate::util::calc;
-│   └── util
-│       ├── mod.rs             # 导出 pub mod calc
-│       └── calc.rs            # 导出 pub(crate) fn add(a, b)
-│
-└── README.md
-```
+1. 数字 `i8`, `i16`, `i32`, `i64`, `i128`, `isize` `u8`, `u16`, `u32`, `u64`, `u128`, `usize` `f32`, `f64`
+2. `bool`， `char`
+3. 函数指针、指针 `&T`（不可变引用）, `*const T`, `*mut T`（裸指针无安全检查、生命周期的指针，与 c 交互时用到）
 
-## 模块图
+## 复合 Copy 类型
 
-<img src="./rust模块.png"/>
+如果一个复合的类型，每一个子类型以及本身都实现 Copy 特性(Trait)，它就是 Copy 类型
 
-## 约定/特性
+常见的 Copy 复合类型：
 
-1. `lib.rs` 为包入口，Rust 发布 package 时的入口
-2. `main.rs` 为程序入口，运行 `cargo run` 时程序从 `fn main` 开始运行
-3. **Rust 子模块可以访问 父、祖父 模块中声明的所有内容，无论内容是否被 pub 修饰**
-4. `mod.rs` 代表所处文件夹是一个模块，它可以通过  `pub mod xxx`  来导出文件夹下的 `xxx.rs` 文件
-
-## 关键字
-
-### 导出
-
-1. `mod` 声明一个子模块
-2. `pub` 向上公开函数、模块的访问权限
-   `pub (create)` 限制向上公开的层级，`(create)` 仅包内可见
-3. `use` 导入函数、模块
-   `use crate::xxx` 从 src 开始导入，类似于 js 的绝对路径
-   `use super::xxx` 相对路径，相当于 './xxx'
-   `use self::xxx` self 表示本模块，通常用在为模块中某个标识符取别名
-
-## 用第三方库
-
-### 安装
-
-```shell
-cargo add xxx
-```
-
-### 使用
-
-```rust
-use xxx::abc;
-```
-
-
-
+1. 元组：`(i32, bool)` 如果每个元素都是 Copy 
+2. 数组：`[i32; 5]` 如果元素是 Copy
+3.  `Option<i32>`、`Result<i32, bool>` 等，
