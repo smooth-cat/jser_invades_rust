@@ -1,22 +1,47 @@
 # JSer 入侵 Rust
-# 第 3集 Copy 类型(基础数据类型)
 
-## 什么是 Copy 类型
+## 第 3 集：Struct 和 Trait
 
-1. 类似于 js 的基础数据类型，对于 `=` 操作符执行到是 复制操作
+```bash
+cargo run
+```
 
-## Copy 类型有哪些
+## 核心概念
 
-1. 数字 `i8`, `i16`, `i32`, `i64`, `i128`, `isize` `u8`, `u16`, `u32`, `u64`, `u128`, `usize` `f32`, `f64`
-2. `bool`， `char`
-3. 函数指针、指针 `&T`（不可变引用）, `*const T`, `*mut T`（裸指针无安全检查、生命周期的指针，与 c 交互时用到）
+- `struct` 保存数据，`impl` 为具体类型实现方法，`trait` 定义多个类型共享的行为。
+- `&self` 是只读借用，`&mut self` / `&mut T` 是独占可变借用。
+- Rust 没有类继承；共享数据和逻辑通常用组合，共享行为通常用 trait。
 
-## 复合 Copy 类型
+## 三种英雄建模
 
-如果一个复合的类型，每一个子类型以及本身都实现 Copy 特性(Trait)，它就是 Copy 类型
+### Trait 直写（`moba_direct.rs`）
 
-常见的 Copy 复合类型：
+- `Support`、`Assassin` 各自保存数据并实现 `Hero`。
+- `impl Hero` 是泛型静态分发：编译期确定具体类型并单态化。
+- `dyn Hero` 是动态分发：运行时通过 vtable 调用，可用 `Vec<Box<dyn Hero>>` 保存不同具体类型。
+- trait 的泛型方法默认不能进入 vtable；可改用 `dyn Hero` 参数，或用 `where Self: Sized` 排除该方法。
+- 类型集合固定时，可用 enum 包装不同类型，再通过 `match` 做静态分发。
 
-1. 元组：`(i32, bool)` 如果每个元素都是 Copy 
-2. 数组：`[i32; 5]` 如果元素是 Copy
-3.  `Option<i32>`、`Result<i32, bool>` 等，
+### 组合（`moba_composite.rs`）
+
+- `Support`、`Assassin` 内嵌 `Hero`，复用生命值和普通攻击逻辑。
+- 公共能力通过字段显式转发，角色专属能力留在各自的 `impl` 中。
+
+### 泛型组合（`moba_generic.rs`）
+
+- `Hero<Role>` 把公共数据与角色数据组合在一个类型中。
+- `impl Hero<Support>`、`impl Hero<Assassin>` 只为对应角色开放专属方法。
+- 不同 `Hero<Role>` 是不同类型；需要混合存储时可再用 enum 统一。
+
+## ECS 与 Sparse Set（`main.rs`）
+
+- Entity 只是 ID，Component 只保存数据，System 负责行为。
+- 每种组件使用 `sparse + dense + entities`：稀疏索引负责定位，连续数组负责缓存友好的遍历。
+- 插入、查询和 `swap-remove` 删除接近 `O(1)`；删除会改变 dense 顺序。
+- 批量 System 先收集 Entity，再可变访问组件，可避免同时借用 `World` 的冲突。
+
+## 选择建议
+
+- 类型在编译期已知：优先泛型或 enum 静态分发。
+- 类型只能在运行时确定，或需要开放扩展：使用 `dyn Trait`。
+- 多个角色共享状态而行为差异有限：优先组合；数据量大且需要批量处理：考虑 ECS。
