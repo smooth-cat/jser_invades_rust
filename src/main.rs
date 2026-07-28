@@ -21,6 +21,7 @@ impl SelfOperate for Counter {
 }
 
 use demo::moba_direct::direct;
+use demo::moba_direct_macro;
 use demo::moba_composite::composite;
 use demo::moba_generic::generic;
 
@@ -30,6 +31,7 @@ fn main() {
   println!("{}", c.dec());
   println!("----------------------- Hero -----------------------");
   direct();
+  moba_direct_macro::direct();
   composite();
   generic();
 }
