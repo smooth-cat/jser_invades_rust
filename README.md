@@ -1,10 +1,6 @@
 # JSer 入侵 Rust
 
-## 第 3 集：Struct 和 Trait
-
-```bash
-cargo run
-```
+# 第 3 集：Struct 和 Trait
 
 ## 核心概念
 
