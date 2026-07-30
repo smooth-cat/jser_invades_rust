@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>数据结构与所有权学习路线</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #1e1e2e;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    font-family: -apple-system, "PingFang SC", sans-serif;
+  }
+  .chart {
+    position: relative;
+    width: 520px;
+    height: 340px;
+  }
+  .node {
+    position: absolute;
+    padding: 12px 20px;
+    border-radius: 8px;
+    color: #cdd6f4;
+    font-size: 14px;
+    text-align: center;
+    white-space: nowrap;
+  }
+  .root {
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #45475a;
+    border: 2px solid #89b4fa;
+  }
+  .left {
+    top: 150px;
+    left: 40px;
+    background: #45475a;
+    border: 2px solid #a6e3a1;
+  }
+  .right {
+    top: 150px;
+    right: 40px;
+    background: #45475a;
+    border: 2px solid #f9e2af;
+  }
+  .bottom {
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #45475a;
+    border: 2px solid #f38ba8;
+  }
+  svg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+  svg line {
+    stroke: #6c7086;
+    stroke-width: 2;
+  }
+  svg polygon {
+    fill: #6c7086;
+  }
+</style>
+</head>
+<body>
+<div class="chart">
+  <svg viewBox="0 0 520 340">
+    <!-- root -> left -->
+    <line x1="220" y1="62" x2="152" y2="145"/>
+    <polygon points="145,153 160,143 149,134"/>
+    <!-- root -> right -->
+    <line x1="300" y1="62" x2="368" y2="145"/>
+    <polygon points="375,153 371,134 360,143"/>
+    <!-- left -> bottom -->
+    <line x1="145" y1="192" x2="218" y2="274"/>
+    <polygon points="225,282 222,263 210,273"/>
+    <!-- right -> bottom -->
+    <line x1="375" y1="192" x2="302" y2="274"/>
+    <polygon points="295,282 310,273 298,263"/>
+  </svg>
+  <div class="node root">数据结构与所有权学习路线</div>
+  <div class="node left">Copy 类型数据结构</div>
+  <div class="node right">非 Copy 类型数据结构</div>
+  <div class="node bottom">所有权、生命周期</div>
+</div>
+</body>
+</html>
