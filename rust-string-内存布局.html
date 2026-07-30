@@ -1,0 +1,1021 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rust String 内存结构详解</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+  background: #0d1117;
+  color: #c9d1d9;
+  line-height: 1.7;
+  padding: 40px 20px;
+}
+.container { max-width: 1100px; margin: 0 auto; }
+h1 {
+  font-size: 2em;
+  color: #58a6ff;
+  margin-bottom: 8px;
+  font-weight: 700;
+}
+.subtitle { color: #8b949e; margin-bottom: 48px; font-size: 1.05em; }
+h2 {
+  font-size: 1.4em;
+  color: #f0883e;
+  margin: 56px 0 20px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #21262d;
+}
+h3 { font-size: 1.1em; color: #7ee787; margin: 32px 0 12px; }
+p { margin: 12px 0; color: #c9d1d9; }
+code {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.9em;
+  color: #79c0ff;
+}
+pre {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 16px 20px;
+  overflow-x: auto;
+  margin: 16px 0;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.88em;
+  line-height: 1.6;
+  color: #c9d1d9;
+}
+.kw { color: #ff7b72; }
+.str { color: #a5d6ff; }
+.fn { color: #d2a8ff; }
+.cm { color: #8b949e; }
+.num { color: #79c0ff; }
+.type { color: #7ee787; }
+
+/* Memory diagram styles */
+.mem-diagram {
+  display: flex;
+  gap: 24px;
+  margin: 24px 0;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.mem-region {
+  border: 2px solid #30363d;
+  border-radius: 12px;
+  padding: 20px;
+  background: #161b22;
+  flex: 1;
+  min-width: 280px;
+}
+.mem-region.stack { border-color: #58a6ff; }
+.mem-region.heap { border-color: #f0883e; }
+.mem-region.static-region { border-color: #7ee787; }
+.region-title {
+  font-weight: 700;
+  font-size: 0.85em;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.stack .region-title { color: #58a6ff; }
+.heap .region-title { color: #f0883e; }
+.static-region .region-title { color: #7ee787; }
+.region-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.stack .region-dot { background: #58a6ff; }
+.heap .region-dot { background: #f0883e; }
+.static-region .region-dot { background: #7ee787; }
+
+/* Cell grid */
+.cell-row {
+  display: flex;
+  margin: 4px 0;
+  align-items: stretch;
+}
+.cell-label {
+  width: 90px;
+  font-size: 0.78em;
+  color: #8b949e;
+  display: flex;
+  align-items: center;
+  padding-right: 8px;
+  text-align: right;
+  justify-content: flex-end;
+  font-family: 'SF Mono', monospace;
+}
+.cell {
+  border: 1px solid #30363d;
+  background: #0d1117;
+  padding: 8px 12px;
+  font-family: 'SF Mono', monospace;
+  font-size: 0.82em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 60px;
+  border-radius: 4px;
+  margin: 1px;
+  position: relative;
+}
+.cell.highlight { border-color: #58a6ff; background: #0d1f3c; }
+.cell.ptr-cell { border-color: #f0883e; background: #2d1b00; }
+.cell.byte { min-width: 36px; padding: 8px 6px; }
+.cell.used { background: #1a2332; border-color: #58a6ff; }
+.cell.unused { background: #0d1117; border-color: #21262d; color: #484f58; }
+.cell.static-byte { background: #0f2010; border-color: #238636; }
+
+/* Arrow */
+.arrow-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 12px 0;
+  position: relative;
+}
+.arrow-down {
+  width: 2px;
+  height: 30px;
+  background: #f0883e;
+  position: relative;
+}
+.arrow-down::after {
+  content: '';
+  position: absolute;
+  bottom: -6px;
+  left: -4px;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 8px solid #f0883e;
+}
+.ptr-arrow {
+  color: #f0883e;
+  font-size: 1.4em;
+  text-align: center;
+  margin: 8px 0;
+}
+
+/* Operation steps */
+.op-section {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 12px;
+  padding: 24px;
+  margin: 24px 0;
+}
+.op-title {
+  font-size: 1.05em;
+  font-weight: 600;
+  color: #d2a8ff;
+  margin-bottom: 16px;
+}
+.step {
+  display: flex;
+  gap: 16px;
+  margin: 16px 0;
+  align-items: flex-start;
+}
+.step-num {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #21262d;
+  border: 1px solid #30363d;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8em;
+  font-weight: 700;
+  color: #58a6ff;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.step-content { flex: 1; }
+.step-content p { margin: 4px 0; font-size: 0.92em; }
+
+/* Byte visualization for operations */
+.byte-viz {
+  display: flex;
+  gap: 2px;
+  margin: 12px 0;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.byte-box {
+  width: 32px;
+  height: 32px;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'SF Mono', monospace;
+  font-size: 0.75em;
+  background: #0d1117;
+}
+.byte-box.active { border-color: #58a6ff; background: #0d1f3c; color: #58a6ff; }
+.byte-box.new { border-color: #7ee787; background: #0f2010; color: #7ee787; }
+.byte-box.removed { border-color: #f85149; background: #2d0000; color: #f85149; text-decoration: line-through; }
+.byte-box.moved { border-color: #d2a8ff; background: #1a0d2e; color: #d2a8ff; }
+.byte-box.empty { border-color: #21262d; color: #484f58; }
+.byte-label {
+  font-size: 0.72em;
+  color: #8b949e;
+  margin-left: 8px;
+  font-family: 'SF Mono', monospace;
+}
+
+/* Legend */
+.legend {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin: 16px 0;
+  padding: 12px 16px;
+  background: #0d1117;
+  border-radius: 8px;
+  border: 1px solid #21262d;
+}
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8em;
+  color: #8b949e;
+}
+.legend-color {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid;
+}
+
+/* Size annotation */
+.size-note {
+  font-size: 0.78em;
+  color: #8b949e;
+  font-family: 'SF Mono', monospace;
+  margin-top: 8px;
+  padding: 6px 10px;
+  background: #0d1117;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+/* Comparison table */
+.cmp-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+  font-size: 0.88em;
+}
+.cmp-table th {
+  background: #21262d;
+  padding: 10px 14px;
+  text-align: left;
+  color: #58a6ff;
+  font-weight: 600;
+  border: 1px solid #30363d;
+}
+.cmp-table td {
+  padding: 10px 14px;
+  border: 1px solid #30363d;
+  color: #c9d1d9;
+}
+.cmp-table tr:nth-child(even) td { background: #161b22; }
+
+/* String / &String / &str relationship diagram */
+.relation-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin: 20px 0;
+}
+.relation-card {
+  min-width: 0;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 18px;
+  background: #161b22;
+}
+.relation-card h3 {
+  margin: 0 0 4px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+.relation-kind {
+  color: #8b949e;
+  font-size: 0.78em;
+  margin-bottom: 16px;
+}
+.relation-node {
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  background: #0d1117;
+  overflow: hidden;
+}
+.relation-node-title {
+  padding: 6px 10px;
+  color: #c9d1d9;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.78em;
+  border-bottom: 1px solid #30363d;
+}
+.relation-node.stack-value { border-color: #58a6ff; }
+.relation-node.borrow-value { border-color: #d2a8ff; }
+.relation-node.heap-value { border-color: #f0883e; }
+.relation-node.static-value { border-color: #7ee787; }
+.relation-words {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.relation-words.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.relation-words.one { grid-template-columns: 1fr; }
+.relation-word {
+  padding: 8px 6px;
+  text-align: center;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.73em;
+  color: #79c0ff;
+  border-right: 1px solid #30363d;
+  overflow-wrap: anywhere;
+}
+.relation-word:last-child { border-right: none; }
+.relation-arrow {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #f0883e;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.76em;
+  text-align: center;
+}
+.relation-bytes {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.relation-byte {
+  padding: 8px 3px;
+  text-align: center;
+  color: #ffa657;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.78em;
+  border-right: 1px solid #30363d;
+}
+.relation-byte:last-child { border-right: none; }
+.relation-caption {
+  min-height: 3.4em;
+  margin: 14px 0 0;
+  color: #8b949e;
+  font-size: 0.82em;
+}
+.coercion-flow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 20px 0;
+  padding: 18px;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  background: #161b22;
+}
+.flow-node {
+  padding: 8px 12px;
+  border: 1px solid #58a6ff;
+  border-radius: 6px;
+  background: #0d1f3c;
+  color: #79c0ff;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.82em;
+  text-align: center;
+}
+.flow-arrow {
+  color: #8b949e;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.75em;
+  text-align: center;
+}
+.relation-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+.relation-fact {
+  border-left: 3px solid #30363d;
+  padding-left: 12px;
+  font-size: 0.86em;
+}
+.relation-fact strong {
+  display: block;
+  color: #c9d1d9;
+  margin-bottom: 3px;
+}
+.relation-fact span { color: #8b949e; }
+
+@media (max-width: 820px) {
+  .relation-grid { grid-template-columns: 1fr; }
+  .relation-caption { min-height: 0; }
+}
+@media (max-width: 620px) {
+  .relation-facts { grid-template-columns: 1fr; }
+  .coercion-flow { align-items: stretch; flex-direction: column; }
+  .flow-arrow { padding: 2px 0; }
+}
+
+.note-box {
+  background: #0d1f3c;
+  border: 1px solid #1f6feb;
+  border-radius: 8px;
+  padding: 14px 18px;
+  margin: 16px 0;
+  font-size: 0.9em;
+}
+.note-box::before {
+  content: '💡 ';
+}
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>Rust String 内存结构详解</h1>
+<p class="subtitle">栈 · 堆 · 静态数据区 —— 以及增删改的底层实现</p>
+
+<!-- ==================== SECTION 1: 基本结构 ==================== -->
+<h2>一、String 的三层存储</h2>
+
+<p>当你写下 <code>let s = String::from("hello");</code> 时，数据分布在三个区域：</p>
+
+<pre><span class="cm">// 源码定义 (alloc::string)</span>
+<span class="kw">pub struct</span> <span class="type">String</span> {
+    vec: <span class="type">Vec</span>&lt;<span class="type">u8</span>&gt;,   <span class="cm">// 就这一个字段</span>
+}
+
+<span class="cm">// Vec 的定义 (alloc::vec)</span>
+<span class="kw">pub struct</span> <span class="type">Vec</span>&lt;T&gt; {
+    buf: <span class="type">RawVec</span>&lt;T&gt;,  <span class="cm">// ptr + capacity</span>
+    len: <span class="type">usize</span>,       <span class="cm">// 已使用长度</span>
+}</pre>
+
+<div class="mem-diagram">
+  <!-- Stack -->
+  <div class="mem-region stack">
+    <div class="region-title"><span class="region-dot"></span>栈 (Stack)</div>
+    <div class="cell-row">
+      <div class="cell-label">s.vec.ptr</div>
+      <div class="cell ptr-cell" style="flex:1">0x7f3a_0040 ──→</div>
+    </div>
+    <div class="cell-row">
+      <div class="cell-label">s.vec.cap</div>
+      <div class="cell highlight" style="flex:1">5 (usize, 8B)</div>
+    </div>
+    <div class="cell-row">
+      <div class="cell-label">s.vec.len</div>
+      <div class="cell highlight" style="flex:1">5 (usize, 8B)</div>
+    </div>
+    <div class="size-note">栈上共 24 字节 (3 × usize)</div>
+  </div>
+
+  <!-- Heap -->
+  <div class="mem-region heap">
+    <div class="region-title"><span class="region-dot"></span>堆 (Heap) — GlobalAlloc 分配</div>
+    <div class="cell-row">
+      <div class="cell-label">offset</div>
+      <div class="cell byte" style="min-width:28px;font-size:0.7em;color:#8b949e">0</div>
+      <div class="cell byte" style="min-width:28px;font-size:0.7em;color:#8b949e">1</div>
+      <div class="cell byte" style="min-width:28px;font-size:0.7em;color:#8b949e">2</div>
+      <div class="cell byte" style="min-width:28px;font-size:0.7em;color:#8b949e">3</div>
+      <div class="cell byte" style="min-width:28px;font-size:0.7em;color:#8b949e">4</div>
+    </div>
+    <div class="cell-row">
+      <div class="cell-label">data</div>
+      <div class="cell byte used">'h'</div>
+      <div class="cell byte used">'e'</div>
+      <div class="cell byte used">'l'</div>
+      <div class="cell byte used">'l'</div>
+      <div class="cell byte used">'o'</div>
+    </div>
+    <div style="display:flex;margin-top:6px;padding-left:90px;">
+      <span style="font-size:0.72em;color:#58a6ff;">← len = 5 →</span>
+      <span style="font-size:0.72em;color:#484f58;margin-left:4px;">cap = 5</span>
+    </div>
+    <div class="size-note">堆上可见容量为 5 字节 (capacity × size_of::&lt;u8&gt;())</div>
+  </div>
+
+  <!-- Static -->
+  <div class="mem-region static-region">
+    <div class="region-title"><span class="region-dot"></span>静态数据区 (.rodata)</div>
+    <div class="cell-row">
+      <div class="cell-label">"hello"</div>
+      <div class="cell byte static-byte">'h'</div>
+      <div class="cell byte static-byte">'e'</div>
+      <div class="cell byte static-byte">'l'</div>
+      <div class="cell byte static-byte">'l'</div>
+      <div class="cell byte static-byte">'o'</div>
+    </div>
+    <p style="font-size:0.82em;color:#8b949e;margin-top:12px;">
+      字面量 <code>"hello"</code> 编译时写入二进制的 .rodata 段。<br>
+      <code>String::from()</code> 时从这里 <strong style="color:#7ee787">memcpy</strong> 到堆。<br>
+      之后 .rodata 中的副本不再被 String 使用。
+    </p>
+    <div class="size-note">&amp;str 类型直接引用这里（零拷贝）</div>
+  </div>
+</div>
+
+<div class="note-box">
+  <code>&amp;str</code> 是一个胖指针 (ptr + len)，直接指向 .rodata 或堆上的字节切片，不拥有数据。
+  <code>String</code> 拥有堆内存，Drop 时会调用 <code>dealloc</code> 释放。
+</div>
+
+<!-- ==================== SECTION 2: String / &String / &str ==================== -->
+<h2>二、<code>String</code>、<code>&amp;String</code> 与 <code>&amp;str</code> 的关系</h2>
+
+<pre><span class="kw">let</span> owned: <span class="type">String</span> = <span class="type">String</span>::<span class="fn">from</span>(<span class="str">"hello"</span>);
+<span class="kw">let</span> string_ref: &amp;<span class="type">String</span> = &amp;owned; <span class="cm">// 借用 String 结构体</span>
+<span class="kw">let</span> slice: &amp;<span class="type">str</span> = &amp;owned;         <span class="cm">// Deref 强制转换，直接借用 UTF-8 字节</span>
+<span class="kw">let</span> literal: &amp;<span class="kw">'static</span> <span class="type">str</span> = <span class="str">"hello"</span>; <span class="cm">// 直接指向 .rodata</span></pre>
+
+<div class="relation-grid">
+  <div class="relation-card">
+    <h3>String</h3>
+    <div class="relation-kind">拥有者 · 栈上 3 个机器字</div>
+    <div class="relation-node stack-value">
+      <div class="relation-node-title">owned: String</div>
+      <div class="relation-words">
+        <div class="relation-word">ptr</div>
+        <div class="relation-word">len=5</div>
+        <div class="relation-word">cap=5</div>
+      </div>
+    </div>
+    <div class="relation-arrow">ptr ──▼ 拥有</div>
+    <div class="relation-node heap-value">
+      <div class="relation-node-title">堆上的 UTF-8 缓冲区</div>
+      <div class="relation-bytes">
+        <div class="relation-byte">h</div><div class="relation-byte">e</div><div class="relation-byte">l</div><div class="relation-byte">l</div><div class="relation-byte">o</div>
+      </div>
+    </div>
+    <p class="relation-caption">可增长，离开作用域时负责释放堆内存。</p>
+  </div>
+
+  <div class="relation-card">
+    <h3>&amp;String</h3>
+    <div class="relation-kind">对拥有者的借用 · 栈上 1 个机器字</div>
+    <div class="relation-node borrow-value">
+      <div class="relation-node-title">string_ref: &amp;String</div>
+      <div class="relation-words one"><div class="relation-word">ptr to owned</div></div>
+    </div>
+    <div class="relation-arrow">│ 借用 String 本体<br>▼</div>
+    <div class="relation-node stack-value">
+      <div class="relation-node-title">owned: String</div>
+      <div class="relation-words">
+        <div class="relation-word">ptr</div>
+        <div class="relation-word">len=5</div>
+        <div class="relation-word">cap=5</div>
+      </div>
+    </div>
+    <div class="relation-arrow">ptr ──▼ 再到堆字节</div>
+    <div class="relation-node heap-value">
+      <div class="relation-node-title">owned 的堆缓冲区</div>
+      <div class="relation-bytes">
+        <div class="relation-byte">h</div><div class="relation-byte">e</div><div class="relation-byte">l</div><div class="relation-byte">l</div><div class="relation-byte">o</div>
+      </div>
+    </div>
+    <p class="relation-caption">它先指向 <code>String</code> 结构体；访问文本需再跟随其中的 <code>ptr</code>。</p>
+  </div>
+
+  <div class="relation-card">
+    <h3>&amp;str</h3>
+    <div class="relation-kind">对字节切片的借用 · 栈上 2 个机器字</div>
+    <div class="relation-node borrow-value">
+      <div class="relation-node-title">slice: &amp;str</div>
+      <div class="relation-words two">
+        <div class="relation-word">data ptr</div>
+        <div class="relation-word">len=5</div>
+      </div>
+    </div>
+    <div class="relation-arrow">data ptr ──▼ 直接借用</div>
+    <div class="relation-node heap-value">
+      <div class="relation-node-title">owned 的堆缓冲区</div>
+      <div class="relation-bytes">
+        <div class="relation-byte">h</div><div class="relation-byte">e</div><div class="relation-byte">l</div><div class="relation-byte">l</div><div class="relation-byte">o</div>
+      </div>
+    </div>
+    <p class="relation-caption">跳过 <code>String</code> 结构体，直接表示一段有效 UTF-8 字节。也可以指向 .rodata。</p>
+  </div>
+</div>
+
+<div class="coercion-flow" aria-label="String、&amp;String 与 &amp;str 的转换关系">
+  <div class="flow-node">String</div>
+  <div class="flow-arrow">── &amp;owned 借用 ──▶</div>
+  <div class="flow-node">&amp;String</div>
+  <div class="flow-arrow">── Deref coercion ──▶<br>自动解引用强转</div>
+  <div class="flow-node">&amp;str</div>
+</div>
+
+<div class="relation-facts">
+  <div class="relation-fact"><strong><code>String</code> 拥有数据</strong><span>有 <code>capacity</code>，可修改、可增长，负责 Drop。</span></div>
+  <div class="relation-fact"><strong><code>&amp;String</code> 借用容器</strong><span>能访问 <code>String</code> 的完整 API，也能自动转成 <code>&amp;str</code>。</span></div>
+  <div class="relation-fact"><strong><code>&amp;str</code> 借用文本</strong><span>只需 <code>ptr + len</code>；函数参数通常优先写它，接受范围更广。</span></div>
+</div>
+
+<div class="note-box">
+  <code>&amp;String</code> 和由它强转得到的 <code>&amp;str</code> 都不拥有字节，也都不会释放堆内存。
+  区别在于：前者指向 <code>String</code> 值，后者直接指向字节区间。
+</div>
+
+<!-- ==================== SECTION 3: 从字面量到 String ==================== -->
+<h2>三、String::from("hello") 发生了什么</h2>
+
+<pre><span class="kw">let</span> s = <span class="type">String</span>::<span class="fn">from</span>(<span class="str">"hello"</span>);</pre>
+
+<div class="op-section">
+  <div class="step">
+    <div class="step-num">1</div>
+    <div class="step-content">
+      <p>编译器在 <strong>.rodata</strong> 段放入字节 <code>[0x68, 0x65, 0x6c, 0x6c, 0x6f]</code></p>
+      <p>字面量 <code>"hello"</code> 的类型是 <code>&amp;'static str</code>，即指向 .rodata 的胖指针</p>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">2</div>
+    <div class="step-content">
+      <p><code>String::from</code> 为 5 个字节申请容量；分配器可能在内部取整分配块，但 <code>String::capacity()</code> 仍记录可用容量</p>
+      <p>→ 通过 <code>GlobalAlloc::alloc(layout)</code> 向操作系统申请堆内存</p>
+      <p>→ 底层是 <code>mmap</code>（大块）或 <code>brk/sbrk</code>（小块，由 allocator 如 jemalloc 管理）</p>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">3</div>
+    <div class="step-content">
+      <p><code>ptr::copy_nonoverlapping(src, dst, 5)</code> —— 从 .rodata 拷贝 5 字节到堆</p>
+      <p>设置 len = 5, cap = 5（本例中）</p>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">4</div>
+    <div class="step-content">
+      <p>栈上得到 24 字节的 String 值，指向堆上的新副本</p>
+      <p>.rodata 中的原始字面量依然存在，但 String 不再引用它</p>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== SECTION 4: 增 (push_str) ==================== -->
+<h2>四、增 —— push_str / push / insert</h2>
+
+<h3>情况 A：容量足够（不触发 realloc）</h3>
+<pre><span class="kw">let mut</span> s = <span class="type">String</span>::<span class="fn">with_capacity</span>(<span class="num">16</span>);
+s.<span class="fn">push_str</span>(<span class="str">"hi"</span>);   <span class="cm">// len=2, cap=16</span>
+s.<span class="fn">push_str</span>(<span class="str">"!!"</span>);   <span class="cm">// len=4, cap=16 ← 原地写入，无系统调用</span></pre>
+
+<div class="op-section">
+  <div class="op-title">push_str("!!") — cap 充足</div>
+  <p style="font-size:0.85em;color:#8b949e;margin-bottom:12px;">before: len=2, cap=16</p>
+  <div class="byte-viz">
+    <div class="byte-box active">h</div>
+    <div class="byte-box active">i</div>
+    <div class="byte-box empty">·</div>
+    <div class="byte-box empty">·</div>
+    <div class="byte-box empty">·</div>
+    <div class="byte-box empty">·</div>
+    <span class="byte-label">... cap=16</span>
+  </div>
+  <p style="font-size:0.85em;color:#8b949e;margin:12px 0 4px;">after: len=4, cap=16（ptr 不变）</p>
+  <div class="byte-viz">
+    <div class="byte-box active">h</div>
+    <div class="byte-box active">i</div>
+    <div class="byte-box new">!</div>
+    <div class="byte-box new">!</div>
+    <div class="byte-box empty">·</div>
+    <div class="byte-box empty">·</div>
+    <span class="byte-label">... cap=16</span>
+  </div>
+  <div class="step" style="margin-top:16px;">
+    <div class="step-num">✓</div>
+    <div class="step-content">
+      <p>检查 <code>len + new_len &lt;= cap</code> → 通过</p>
+      <p><code>ptr::copy_nonoverlapping(src, ptr.add(len), 2)</code> 直接写入偏移位置</p>
+      <p><code>len += 2</code>，完事。零系统调用，O(n) 仅 n = 新增长度。</p>
+    </div>
+  </div>
+</div>
+
+<h3>情况 B：容量不足（触发 realloc）</h3>
+<pre><span class="kw">let mut</span> s = <span class="type">String</span>::<span class="fn">from</span>(<span class="str">"hello"</span>); <span class="cm">// len=5, cap=8 (假设)</span>
+s.<span class="fn">push_str</span>(<span class="str">" world!!!"</span>);        <span class="cm">// 需要 5+9=14 > 8，必须扩容</span></pre>
+
+<div class="op-section">
+  <div class="op-title">push_str(" world!!!") — 需要扩容</div>
+  <p style="font-size:0.85em;color:#8b949e;margin-bottom:12px;">before: len=5, cap=8, ptr=0xA</p>
+  <div class="byte-viz">
+    <div class="byte-box active">h</div>
+    <div class="byte-box active">e</div>
+    <div class="byte-box active">l</div>
+    <div class="byte-box active">l</div>
+    <div class="byte-box active">o</div>
+    <div class="byte-box empty">·</div>
+    <div class="byte-box empty">·</div>
+    <div class="byte-box empty">·</div>
+    <span class="byte-label">0xA, cap=8</span>
+  </div>
+
+  <div class="step">
+    <div class="step-num">1</div>
+    <div class="step-content">
+      <p>计算新容量：<code>max(needed, cap * 2)</code> → max(14, 16) = <strong>16</strong>（倍增策略）</p>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">2</div>
+    <div class="step-content">
+      <p><code>GlobalAlloc::realloc(ptr=0xA, old_layout, new_layout)</code></p>
+      <p>分配器尝试原地扩展；若不行则 alloc 新块 + memcpy + dealloc 旧块</p>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">3</div>
+    <div class="step-content">
+      <p>将新数据写入 ptr.add(5) 的位置</p>
+    </div>
+  </div>
+
+  <p style="font-size:0.85em;color:#8b949e;margin:16px 0 4px;">after: len=14, cap=16, ptr=0xB（可能变了）</p>
+  <div class="byte-viz">
+    <div class="byte-box moved">h</div>
+    <div class="byte-box moved">e</div>
+    <div class="byte-box moved">l</div>
+    <div class="byte-box moved">l</div>
+    <div class="byte-box moved">o</div>
+    <div class="byte-box new">␣</div>
+    <div class="byte-box new">w</div>
+    <div class="byte-box new">o</div>
+    <div class="byte-box new">r</div>
+    <div class="byte-box new">l</div>
+    <div class="byte-box new">d</div>
+    <div class="byte-box new">!</div>
+    <div class="byte-box new">!</div>
+    <div class="byte-box new">!</div>
+    <div class="byte-box empty">·</div>
+    <div class="byte-box empty">·</div>
+    <span class="byte-label">0xB, cap=16</span>
+  </div>
+  <div class="legend">
+    <div class="legend-item"><div class="legend-color" style="background:#1a0d2e;border-color:#d2a8ff;"></div>旧数据（可能被 memcpy）</div>
+    <div class="legend-item"><div class="legend-color" style="background:#0f2010;border-color:#7ee787;"></div>新写入</div>
+    <div class="legend-item"><div class="legend-color" style="background:#0d1117;border-color:#21262d;"></div>未使用容量</div>
+  </div>
+</div>
+
+<h3>insert(idx, char) — 中间插入</h3>
+<pre><span class="kw">let mut</span> s = <span class="type">String</span>::<span class="fn">from</span>(<span class="str">"helo"</span>);
+s.<span class="fn">insert</span>(<span class="num">3</span>, <span class="str">'l'</span>);  <span class="cm">// "hello"</span></pre>
+
+<div class="op-section">
+  <div class="op-title">insert(3, 'l') — 需要 memmove</div>
+  <p style="font-size:0.85em;color:#8b949e;margin-bottom:12px;">before: [h, e, l, o], len=4</p>
+  <div class="byte-viz">
+    <div class="byte-box active">h</div>
+    <div class="byte-box active">e</div>
+    <div class="byte-box active">l</div>
+    <div class="byte-box active" style="border-color:#f0883e;">o</div>
+    <div class="byte-box empty">·</div>
+  </div>
+  <div class="step">
+    <div class="step-num">1</div>
+    <div class="step-content">
+      <p>验证 idx=3 是合法 UTF-8 字符边界（不是多字节中间）</p>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">2</div>
+    <div class="step-content">
+      <p><code>ptr::copy(ptr.add(3), ptr.add(4), len-3)</code> — 将 idx 之后的字节整体后移 1 位</p>
+      <p>即 <code>memmove</code>，方向安全（从后往前或 allocator 保证）</p>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">3</div>
+    <div class="step-content">
+      <p>在 ptr.add(3) 写入 'l' 的 UTF-8 编码 (0x6C)，len += 1</p>
+    </div>
+  </div>
+  <p style="font-size:0.85em;color:#8b949e;margin:12px 0 4px;">after: [h, e, l, <strong style="color:#7ee787">l</strong>, o], len=5</p>
+  <div class="byte-viz">
+    <div class="byte-box active">h</div>
+    <div class="byte-box active">e</div>
+    <div class="byte-box active">l</div>
+    <div class="byte-box new">l</div>
+    <div class="byte-box moved">o</div>
+  </div>
+</div>
+
+<!-- ==================== SECTION 5: 删 (remove / truncate / clear) ==================== -->
+<h2>五、删 —— remove / truncate / clear</h2>
+
+<h3>remove(idx) — 删除单个字符</h3>
+<pre><span class="kw">let mut</span> s = <span class="type">String</span>::<span class="fn">from</span>(<span class="str">"hello"</span>);
+s.<span class="fn">remove</span>(<span class="num">1</span>);  <span class="cm">// 删掉 'e' → "hllo"</span></pre>
+
+<div class="op-section">
+  <div class="op-title">remove(1) — memmove 前移</div>
+  <p style="font-size:0.85em;color:#8b949e;margin-bottom:12px;">before: [h, e, l, l, o], len=5</p>
+  <div class="byte-viz">
+    <div class="byte-box active">h</div>
+    <div class="byte-box removed">e</div>
+    <div class="byte-box active">l</div>
+    <div class="byte-box active">l</div>
+    <div class="byte-box active">o</div>
+  </div>
+  <div class="step">
+    <div class="step-num">1</div>
+    <div class="step-content">
+      <p>确定 idx=1 处字符的 UTF-8 字节宽度（'e' = 1 字节）</p>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">2</div>
+    <div class="step-content">
+      <p><code>ptr::copy(ptr.add(2), ptr.add(1), len-2)</code> — 后续字节整体前移 1 位</p>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">3</div>
+    <div class="step-content">
+      <p><code>len -= 1</code>。注意：cap 不变，不释放堆内存。</p>
+    </div>
+  </div>
+  <p style="font-size:0.85em;color:#8b949e;margin:12px 0 4px;">after: [h, l, l, o], len=4, cap 不变</p>
+  <div class="byte-viz">
+    <div class="byte-box active">h</div>
+    <div class="byte-box moved">l</div>
+    <div class="byte-box moved">l</div>
+    <div class="byte-box moved">o</div>
+    <div class="byte-box empty">·</div>
+  </div>
+  <div class="note-box">删除操作永远不会缩小 capacity。想真正释放内存需手动调用 <code>s.shrink_to_fit()</code>。</div>
+</div>
+
+<h3>truncate(new_len) / clear()</h3>
+<pre>s.<span class="fn">truncate</span>(<span class="num">2</span>);  <span class="cm">// 只保留前 2 字节（必须在字符边界）</span>
+s.<span class="fn">clear</span>();      <span class="cm">// 等价于 truncate(0)</span></pre>
+
+<div class="op-section">
+  <div class="op-title">truncate(2) — 仅改 len</div>
+  <div class="step">
+    <div class="step-num">1</div>
+    <div class="step-content">
+      <p>验证 new_len 是字符边界</p>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">2</div>
+    <div class="step-content">
+      <p><code>self.vec.len = 2</code> —— 就这一步。不 memmove，不 dealloc。</p>
+      <p>后面的字节物理上还在堆里，只是逻辑上不可见了。</p>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== SECTION 6: 改 (replace_range / 索引赋值) ==================== -->
+<h2>六、改 —— replace_range</h2>
+
+<p>Rust 不允许 <code>s[0] = 'H'</code>（因为 UTF-8 变长，直接索引赋值不安全）。修改用 <code>replace_range</code>：</p>
+
+<pre><span class="kw">let mut</span> s = <span class="type">String</span>::<span class="fn">from</span>(<span class="str">"hello world"</span>);
+s.<span class="fn">replace_range</span>(<span class="num">6</span>..<span class="num">11</span>, <span class="str">"Rust"</span>);  <span class="cm">// "hello Rust"</span></pre>
+
+<div class="op-section">
+  <div class="op-title">replace_range(6..11, "Rust") — 删旧 + 插新</div>
+  <p style="font-size:0.85em;color:#8b949e;margin-bottom:12px;">before: "hello world", len=11</p>
+  <div class="byte-viz">
+    <div class="byte-box active">h</div>
+    <div class="byte-box active">e</div>
+    <div class="byte-box active">l</div>
+    <div class="byte-box active">l</div>
+    <div class="byte-box active">o</div>
+    <div class="byte-box active">␣</div>
+    <div class="byte-box removed">w</div>
+    <div class="byte-box removed">o</div>
+    <div class="byte-box removed">r</div>
+    <div class="byte-box removed">l</div>
+    <div class="byte-box removed">d</div>
+  </div>
+  <div class="step">
+    <div class="step-num">1</div>
+    <div class="step-content">
+      <p>删除范围 6..11：将 range 之后的字节（这里没有）前移，等效 truncate 到 6</p>
+      <p>此时逻辑内容 = "hello "，len=6</p>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">2</div>
+    <div class="step-content">
+      <p>在 idx=6 处 insert_str("Rust")：检查 cap，必要时 realloc，然后 copy 新字节</p>
+    </div>
+  </div>
+  <p style="font-size:0.85em;color:#8b949e;margin:12px 0 4px;">after: "hello Rust", len=10</p>
+  <div class="byte-viz">
+    <div class="byte-box active">h</div>
+    <div class="byte-box active">e</div>
+    <div class="byte-box active">l</div>
+    <div class="byte-box active">l</div>
+    <div class="byte-box active">o</div>
+    <div class="byte-box active">␣</div>
+    <div class="byte-box new">R</div>
+    <div class="byte-box new">u</div>
+    <div class="byte-box new">s</div>
+    <div class="byte-box new">t</div>
+  </div>
+  <div class="note-box">
+    如果替换内容比原范围短（如 "Rust" 4B &lt; "world" 5B），内部先做 replace_range 删除多余部分再插入；
+    如果更长，则可能触发 realloc。整个过程是 <strong>delete_range + insert_str</strong> 的组合。
+  </div>
+</div>
+
+<!-- ==================== SECTION 7: 对比表 ==================== -->
+<h2>七、操作复杂度总览</h2>
+
+<table class="cmp-table">
+  <tr>
+    <th>操作</th>
+    <th>时间复杂度</th>
+    <th>是否可能 realloc</th>
+    <th>核心动作</th>
+  </tr>
+  <tr>
+    <td><code>push / push_str</code></td>
+    <td>O(1) 均摊</td>
+    <td>cap 不足时是</td>
+    <td>copy 到 ptr+len</td>
+  </tr>
+  <tr>
+    <td><code>insert(idx, ch)</code></td>
+    <td>O(n)</td>
+    <td>cap 不足时是</td>
+    <td>memmove 后移 + 写入</td>
+  </tr>
+  <tr>
+    <td><code>remove(idx)</code></td>
+    <td>O(n)</td>
+    <td>否</td>
+    <td>memmove 前移 + len--</td>
+  </tr>
+  <tr>
+    <td><code>truncate / clear</code></td>
+    <td>O(1)</td>
+    <td>否</td>
+    <td>仅改 len</td>
+  </tr>
+  <tr>
+    <td><code>replace_range</code></td>
+    <td>O(n)</td>
+    <td>新内容更长时可能</td>
+    <td>delete + insert 组合</td>
+  </tr>
+  <tr>
+    <td><code>shrink_to_fit</code></td>
+    <td>O(n)</td>
+    <td>是（缩小）</td>
+    <td>realloc 到 len 大小</td>
+  </tr>
+</table>
+
+<!-- ==================== SECTION 8: Drop ==================== -->
+<h2>八、Drop —— 生命周期结束</h2>
+
+<pre><span class="cm">// 当 s 离开作用域：</span>
+<span class="kw">impl</span> <span class="type">Drop</span> <span class="kw">for</span> <span class="type">String</span> {
+    <span class="kw">fn</span> <span class="fn">drop</span>(&amp;<span class="kw">mut self</span>) {
+        <span class="cm">// Vec 的 Drop：</span>
+        <span class="cm">// 1. u8 没有 Drop glue，不需要逐元素析构</span>
+        <span class="cm">// 2. 调用 GlobalAlloc::dealloc(ptr, layout)</span>
+        <span class="cm">//    → 最终归还给 allocator (系统级: munmap / brk)</span>
+    }
+}</pre>
+
+<p>栈上的 24 字节随栈帧弹出自动消失；堆上的 capacity 字节通过 dealloc 释放。
+如果 <code>String</code> 被 move 给另一个变量，原变量的 ptr 置为 dangling（不会 double free）——这就是 Move 语义在内存层面的含义。</p>
+
+<div class="note-box" style="margin-top:32px;">
+  全部源码参考：<code>library/alloc/src/string.rs</code>（String）、<code>library/alloc/src/vec/mod.rs</code>（Vec）、
+  <code>library/alloc/src/raw_vec.rs</code>（RawVec / 扩容逻辑）。rust-lang/rust 仓库。
+</div>
+
+</div>
+</body>
+</html>

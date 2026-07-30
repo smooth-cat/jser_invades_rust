@@ -1,0 +1,1079 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rust VecDeque&lt;T&gt; 内存结构图解</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --surface-strong: #21262d;
+  --border: #30363d;
+  --text: #c9d1d9;
+  --muted: #8b949e;
+  --faint: #6e7681;
+  --blue: #58a6ff;
+  --blue-soft: #0d1f3c;
+  --green: #7ee787;
+  --green-soft: #112b1c;
+  --orange: #f0883e;
+  --orange-soft: #2d1b0d;
+  --purple: #d2a8ff;
+  --purple-soft: #241535;
+  --red: #f85149;
+  --red-soft: #351719;
+  --yellow: #e3b341;
+  --yellow-soft: #2b2512;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  padding: 40px 20px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "SF Mono", "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+  line-height: 1.7;
+}
+
+button, input { font: inherit; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.container { width: min(1120px, 100%); margin: 0 auto; }
+h1 {
+  margin: 0 0 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--surface-strong);
+  color: var(--blue);
+  font-size: 1.8rem;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+.subtitle { margin: 0 0 36px; color: var(--muted); font-size: 0.9rem; }
+h2 {
+  margin: 52px 0 18px;
+  padding-left: 12px;
+  border-left: 3px solid var(--orange);
+  color: var(--orange);
+  font-size: 1.3rem;
+  letter-spacing: 0;
+}
+h3 { margin: 30px 0 12px; color: #79c0ff; font-size: 1.04rem; letter-spacing: 0; }
+p { margin: 10px 0; }
+strong { color: #f0f6fc; }
+code {
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-strong);
+  color: #79c0ff;
+  font-family: inherit;
+  font-size: 0.9em;
+}
+hr { margin: 44px 0; border: 0; border-top: 1px solid var(--surface-strong); }
+.note { margin: 7px 0; color: var(--muted); font-size: 0.82rem; }
+.warning { color: #ffa198; }
+
+.quick-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 20px 0 32px;
+}
+.fact {
+  min-height: 88px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+}
+.fact-label { color: var(--muted); font-size: 0.72rem; }
+.fact-value { margin-top: 4px; color: var(--green); font-size: 1.08rem; font-weight: 700; }
+.fact-detail { margin-top: 2px; color: var(--faint); font-size: 0.72rem; }
+
+.code-block {
+  margin: 14px 0;
+  padding: 16px;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.81rem;
+  line-height: 1.8;
+  white-space: pre;
+}
+.code-block .kw { color: #ff7b72; }
+.code-block .ty { color: #79c0ff; }
+.code-block .fn { color: var(--purple); }
+.code-block .num { color: #79c0ff; }
+.code-block .str { color: #a5d6ff; }
+.code-block .cm { color: var(--muted); }
+
+.memory-scene {
+  margin: 20px 0;
+  padding: 22px;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.scene-title { margin: 0 0 14px; color: var(--green); font-size: 0.82rem; font-weight: 700; }
+.flex-row { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
+.flex-col { display: flex; min-width: 0; flex-direction: column; gap: 8px; }
+.grow { flex: 1 1 480px; }
+.zone-label {
+  margin-bottom: 9px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+.zone-stack .zone-label { color: var(--green); }
+.zone-heap .zone-label { color: var(--purple); }
+
+.stack-frame {
+  display: inline-flex;
+  min-width: 360px;
+  flex-direction: column;
+  overflow: hidden;
+  border: 2px solid var(--green);
+  border-radius: 6px;
+}
+.frame-title {
+  padding: 5px 12px;
+  background: #1a3a2a;
+  color: var(--green);
+  font-size: 0.78rem;
+  text-align: center;
+}
+.stack-row { display: grid; grid-template-columns: 72px minmax(98px, 1fr) 86px 52px; border-bottom: 1px solid var(--border); }
+.stack-row:last-child { border-bottom: 0; }
+.stack-cell { padding: 8px 10px; border-right: 1px solid var(--border); font-size: 0.78rem; overflow-wrap: anywhere; text-align: center; }
+.stack-cell:last-child { border-right: 0; }
+.stack-cell.field { background: var(--bg); color: #79c0ff; font-weight: 700; }
+.stack-cell.value { color: #ffa657; }
+.stack-cell.type { color: var(--muted); }
+.stack-cell.size { color: var(--faint); }
+
+.pointer-line { margin: 6px 0 0; color: var(--blue); font-size: 0.78rem; }
+.pointer-line::before { content: "──▶ "; }
+
+.heap-block {
+  display: inline-flex;
+  min-width: min(100%, 500px);
+  flex-direction: column;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border: 2px solid var(--purple);
+  border-radius: 6px;
+}
+.heap-title {
+  padding: 5px 12px;
+  background: #2a1a3a;
+  color: var(--purple);
+  font-size: 0.77rem;
+  text-align: center;
+}
+.slot-row { display: grid; grid-template-columns: repeat(3, minmax(90px, 1fr)); min-width: 320px; }
+.slot {
+  position: relative;
+  min-height: 84px;
+  padding: 20px 5px 18px;
+  border-right: 1px solid var(--border);
+  background: var(--bg);
+  text-align: center;
+}
+.slot:last-child { border-right: 0; }
+.slot.used { background: var(--purple-soft); }
+.slot.free { color: #484f58; }
+.slot.head-slot { box-shadow: inset 0 3px 0 var(--green); }
+.slot.tail-slot { box-shadow: inset 0 -3px 0 var(--orange); }
+.slot.head-slot.tail-slot { box-shadow: inset 0 3px 0 var(--green), inset 0 -3px 0 var(--orange); }
+.slot-index { position: absolute; top: 2px; left: 5px; color: var(--faint); font-size: 0.6rem; }
+.slot-value { display: block; color: var(--purple); font-size: 0.92rem; font-weight: 700; }
+.slot.free .slot-value { color: #484f58; }
+.logical-index { display: block; margin-top: 2px; color: #79c0ff; font-size: 0.62rem; }
+.slot-markers {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  left: 3px;
+  display: flex;
+  justify-content: center;
+  gap: 3px;
+  min-height: 14px;
+}
+.marker { padding: 0 3px; border-radius: 3px; font-size: 0.55rem; line-height: 14px; }
+.marker.head { background: var(--green-soft); color: var(--green); }
+.marker.tail { background: var(--orange-soft); color: #ffa657; }
+.brace-row { min-width: 320px; padding: 7px 8px 2px; color: var(--muted); font-size: 0.7rem; text-align: center; }
+.brace-a { color: var(--green); }
+.brace-b { color: var(--blue); }
+
+.legend { display: flex; flex-wrap: wrap; gap: 14px; margin: 10px 0 0; color: var(--muted); font-size: 0.7rem; }
+.legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.swatch { width: 14px; height: 9px; border: 1px solid var(--border); background: var(--bg); }
+.swatch.used { background: var(--purple-soft); border-color: var(--purple); }
+.swatch.head { border-top: 3px solid var(--green); }
+.swatch.tail { border-bottom: 3px solid var(--orange); }
+
+/* 环形视图 */
+.ring-panel { min-width: 0; }
+.ring-label { margin-bottom: 2px; color: var(--purple); font-size: 0.72rem; font-weight: 700; text-align: center; }
+.ring-diagram {
+  position: relative;
+  width: min(300px, 100%);
+  aspect-ratio: 1;
+  margin: 4px auto 0;
+}
+.ring-track {
+  position: absolute;
+  inset: 18%;
+  border: 2px solid var(--border);
+  border-radius: 50%;
+}
+.ring-track::after {
+  position: absolute;
+  top: 44%;
+  right: -9px;
+  padding: 1px 2px;
+  background: var(--surface);
+  color: var(--blue);
+  content: "▼";
+  font-size: 0.72rem;
+  line-height: 1;
+}
+.ring-node {
+  position: absolute;
+  top: var(--y);
+  left: var(--x);
+  display: flex;
+  width: var(--node-size, 72px);
+  height: var(--node-size, 72px);
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 4px 13px;
+  transform: translate(-50%, -50%);
+  border: 2px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--faint);
+  text-align: center;
+}
+.ring-node.used { border-color: var(--purple); background: var(--purple-soft); color: var(--purple); }
+.ring-node.head { box-shadow: 0 0 0 3px var(--green); }
+.ring-node.tail { border-color: var(--orange); }
+.ring-node.head.tail { box-shadow: 0 0 0 3px var(--green), inset 0 -4px 0 var(--orange); }
+.ring-node-index { position: absolute; top: 3px; color: var(--faint); font-size: 0.58rem; }
+.ring-node-value { font-size: 0.88rem; font-weight: 700; }
+.ring-node.free .ring-node-value { color: #484f58; }
+.ring-node-logical { margin-top: 1px; color: #79c0ff; font-size: 0.58rem; }
+.ring-node.compact { padding: 6px 2px 10px; }
+.ring-node.compact .ring-node-logical { display: none; }
+.ring-node.compact .ring-node-value { font-size: 0.72rem; }
+.ring-node.compact .ring-flag { min-width: 11px; padding: 0 2px; font-size: 0.5rem; line-height: 10px; }
+.ring-node.dense { padding: 1px; }
+.ring-node.dense .ring-node-index, .ring-node.dense .ring-flags { display: none; }
+.ring-node.dense .ring-node-value { font-size: 0.62rem; }
+.ring-flags { position: absolute; right: 3px; bottom: 3px; left: 3px; display: flex; justify-content: center; gap: 3px; }
+.ring-flag { min-width: 15px; padding: 0 3px; border-radius: 3px; font-size: 0.55rem; line-height: 13px; }
+.ring-flag.head { background: var(--green-soft); color: var(--green); }
+.ring-flag.tail { background: var(--orange-soft); color: #ffa657; }
+.ring-center {
+  position: absolute;
+  top: 48%;
+  left: 50%;
+  display: flex;
+  width: 104px;
+  transform: translate(-50%, -50%);
+  flex-direction: column;
+  align-items: center;
+  color: var(--muted);
+  font-size: 0.66rem;
+  line-height: 1.35;
+  text-align: center;
+}
+.ring-center strong { color: var(--text); font-size: 0.72rem; }
+.ring-caption { margin-top: -4px; color: var(--muted); font-size: 0.66rem; text-align: center; }
+.state-views {
+  display: grid;
+  grid-template-columns: minmax(320px, 1fr) minmax(260px, 320px);
+  gap: 24px;
+  align-items: center;
+}
+.lab-views {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+  gap: 22px;
+  align-items: center;
+}
+.ring-pair { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: center; margin-top: 12px; }
+
+.lab {
+  margin: 22px 0;
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.lab-header { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: flex-end; justify-content: space-between; margin-bottom: 16px; }
+.lab-title { margin: 0; color: var(--green); font-size: 0.94rem; }
+.lab-state { color: var(--muted); font-size: 0.76rem; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field label { color: var(--muted); font-size: 0.68rem; }
+.field input {
+  width: 84px;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text);
+}
+.btn {
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface-strong);
+  color: var(--text);
+  cursor: pointer;
+}
+.btn:hover { border-color: var(--blue); color: #f0f6fc; }
+.btn.primary { border-color: #238636; background: #238636; color: #fff; }
+.btn.ghost { background: transparent; color: var(--muted); }
+.lab-message { min-height: 25px; margin: 12px 0 0; color: #79c0ff; font-size: 0.78rem; }
+.logical-view { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0 0; align-items: center; }
+.logical-label { margin-right: 4px; color: var(--muted); font-size: 0.72rem; }
+.logical-chip { padding: 3px 8px; border: 1px solid #335f8c; border-radius: 4px; background: var(--blue-soft); color: #79c0ff; font-size: 0.74rem; }
+.slice-output { margin-top: 10px; color: var(--muted); font-size: 0.74rem; }
+.slice-output .a { color: var(--green); }
+.slice-output .b { color: #79c0ff; }
+
+.steps { margin: 14px 0; }
+.step { display: flex; gap: 12px; align-items: flex-start; margin: 10px 0; }
+.step-num {
+  display: flex;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+  border-radius: 50%;
+  background: var(--surface-strong);
+  color: var(--blue);
+  font-size: 0.7rem;
+}
+.step-text { font-size: 0.84rem; }
+
+.operation-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 18px 0; }
+.operation {
+  padding: 16px;
+  border-left: 3px solid var(--blue);
+  background: var(--surface);
+}
+.operation.front { border-left-color: var(--green); }
+.operation.back { border-left-color: var(--orange); }
+.operation-title { color: #f0f6fc; font-size: 0.84rem; font-weight: 700; }
+.operation-formula { margin: 7px 0 4px; color: #79c0ff; font-size: 0.76rem; }
+.operation p { margin: 3px 0; color: var(--muted); font-size: 0.76rem; }
+
+.move-diagram { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 14px 0; }
+.move-box { padding: 8px 10px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg); color: var(--muted); font-size: 0.74rem; }
+.move-box.hot { border-color: var(--yellow); background: var(--yellow-soft); color: #f2cc60; }
+.move-arrow { color: var(--blue); }
+
+.compare-table { width: 100%; margin: 16px 0; border-collapse: collapse; font-size: 0.79rem; }
+.compare-table th { padding: 9px 11px; border: 1px solid var(--border); background: var(--surface-strong); color: var(--blue); text-align: left; }
+.compare-table td { padding: 9px 11px; border: 1px solid var(--border); vertical-align: top; }
+.compare-table tr:nth-child(even) td { background: var(--surface); }
+.yes { color: var(--green); }
+.no { color: var(--muted); }
+
+.footer { margin-top: 42px; color: var(--faint); font-size: 0.72rem; text-align: center; }
+
+@media (max-width: 760px) {
+  body { padding: 26px 14px; }
+  h1 { font-size: 1.42rem; }
+  h2 { margin-top: 42px; font-size: 1.13rem; }
+  .quick-facts, .operation-grid, .state-views, .lab-views { grid-template-columns: 1fr; }
+  .memory-scene, .lab { padding: 16px; }
+  .stack-frame { min-width: 0; width: 100%; }
+  .stack-row { grid-template-columns: 58px minmax(86px, 1fr) 68px 42px; }
+  .stack-cell { padding: 7px 5px; font-size: 0.68rem; }
+  .controls { align-items: stretch; }
+  .field { width: 100%; }
+  .field input { width: 100%; }
+  .btn { flex: 1 1 132px; }
+  .compare-wrap { overflow-x: auto; }
+  .compare-table { min-width: 680px; }
+  .ring-pair { grid-template-columns: 1fr; }
+  .ring-pair > .move-arrow { transform: rotate(90deg); text-align: center; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .slot, .ring-node { transition: background-color 160ms ease, box-shadow 160ms ease; }
+}
+</style>
+</head>
+<body>
+<main class="container">
+
+<header>
+  <h1>Rust VecDeque&lt;T&gt; 内存结构图解</h1>
+  <p class="subtitle">栈 · 环形堆缓冲区 · 逻辑索引 —— 以及双端增删的底层实现 | 2026-07-29</p>
+</header>
+
+<section class="quick-facts" aria-label="VecDeque 核心事实">
+  <div class="fact">
+    <div class="fact-label">64 位平台上的概念大小</div>
+    <div class="fact-value">32 bytes</div>
+    <div class="fact-detail">ptr + cap + head + len</div>
+  </div>
+  <div class="fact">
+    <div class="fact-label">逻辑元素的物理位置</div>
+    <div class="fact-value">(head + i) % cap</div>
+    <div class="fact-detail">环绕到堆块开头</div>
+  </div>
+  <div class="fact">
+    <div class="fact-label">队首 / 队尾操作</div>
+    <div class="fact-value">amortized O(1)</div>
+    <div class="fact-detail">通常不需搬移已有元素</div>
+  </div>
+</section>
+
+<h2>一、VecDeque&lt;T&gt; 的本质</h2>
+
+<p><code>VecDeque&lt;T&gt;</code> 是基于<strong>可增长环形缓冲区</strong>的双端队列。它和 <code>Vec&lt;T&gt;</code> 一样把元素存在堆上，但通过 <code>head</code> 把“逻辑上的第 0 个元素”与“物理上的第 0 个槽位”解耦。</p>
+
+<div class="code-block"><span class="cm">// 标准库实现的概念化形式，字段是私有的</span>
+<span class="kw">pub struct</span> <span class="ty">VecDeque</span>&lt;<span class="ty">T</span>, <span class="ty">A</span>: <span class="ty">Allocator</span> = <span class="ty">Global</span>&gt; {
+    head: <span class="ty">WrappedIndex</span>, <span class="cm">// 逻辑首元素的物理槽位，透明包装 usize</span>
+    len: <span class="ty">usize</span>,         <span class="cm">// 已初始化的元素数</span>
+    buf: <span class="ty">RawVec</span>&lt;<span class="ty">T</span>, <span class="ty">A</span>&gt;, <span class="cm">// 持有 ptr + cap + allocator</span>
+}
+
+<span class="cm">// 默认 Global 分配器是 ZST，概念上就是 4 个 usize</span>
+<span class="cm">// 64 位平台: 8 + 8 + 8 + 8 = 32 bytes</span></div>
+
+<p class="note">注意：<code>VecDeque</code> 使用 Rust 默认布局，字段顺序和 ABI 都不是稳定承诺。下图用语义字段解释原理，不应当作 FFI 布局依据。对 <code>T</code> 为 ZST（如 <code>()</code>）的情况，元素不占字节，也不需要真实的堆分配。</p>
+
+<h2>二、栈与环形堆缓冲区</h2>
+
+<p>从 3 个 <code>i32</code> 开始，先看初始化时的连续布局，再通过一次队首弹出和一次队尾追加，推导出环绕布局。</p>
+
+<div class="code-block"><span class="kw">use</span> std::collections::<span class="ty">VecDeque</span>;
+
+<span class="cm">// 数组的 3 个元素会被直接转移到 VecDeque 的堆缓冲区</span>
+<span class="kw">let mut</span> q = <span class="ty">VecDeque</span>::<span class="fn">from</span>([<span class="num">10_i32</span>, <span class="num">20</span>, <span class="num">30</span>]);
+
+<span class="cm">// 当前标准库实现: 分配 N 个槽位，整块复制/移动数组，head = 0, len = N</span>
+<span class="cm">// 下图以 cap = 3 展示这个初始状态</span>
+<span class="cm">// 堆上元素区: 3 × size_of::&lt;i32&gt;() = 12 bytes</span></div>
+
+<p class="note">当前 Rust 1.97.1 中，<code>From&lt;[T; N]&gt;</code> 内部先为 N 个元素请求容量，再用 <code>ptr::copy_nonoverlapping</code> 整块转移数组，最后设置 <code>head = 0</code> 和 <code>len = N</code>。具体容量与内部字段仍属于实现细节。</p>
+
+<div class="memory-scene">
+  <div class="scene-title">初始化完成：逻辑顺序与物理顺序一致</div>
+  <div class="flex-row">
+    <div class="flex-col">
+      <div class="zone-stack">
+        <div class="zone-label">栈 (Stack) —— 当前函数帧</div>
+        <div class="stack-frame">
+          <div class="frame-title">VecDeque&lt;i32&gt; q —— 概念上 32 字节</div>
+          <div class="stack-row">
+            <div class="stack-cell field">ptr</div><div class="stack-cell value">0x7f3a_0080</div><div class="stack-cell type">*mut i32</div><div class="stack-cell size">8 B</div>
+          </div>
+          <div class="stack-row">
+            <div class="stack-cell field">cap</div><div class="stack-cell value">3</div><div class="stack-cell type">usize</div><div class="stack-cell size">8 B</div>
+          </div>
+          <div class="stack-row">
+            <div class="stack-cell field">head</div><div class="stack-cell value">0</div><div class="stack-cell type">WrappedIndex</div><div class="stack-cell size">8 B</div>
+          </div>
+          <div class="stack-row">
+            <div class="stack-cell field">len</div><div class="stack-cell value">3</div><div class="stack-cell type">usize</div><div class="stack-cell size">8 B</div>
+          </div>
+        </div>
+        <div class="pointer-line">ptr 指向整个堆分配的起始处，不一定指向 head</div>
+      </div>
+    </div>
+
+    <div class="flex-col grow">
+      <div class="zone-heap">
+        <div class="zone-label">堆 (Heap) —— RawVec 持有的 3 个 i32 槽位，共 12 B</div>
+        <div class="heap-block">
+          <div class="heap-title">0x7f3a_0080 起 · cap = 3 · head = 0 · len = 3 · full</div>
+          <div class="slot-row">
+            <div class="slot used head-slot tail-slot"><span class="slot-index">[0]</span><span class="slot-value">10</span><span class="logical-index">logical 0</span><span class="slot-markers"><span class="marker head">head</span><span class="marker tail">tail=full</span></span></div>
+            <div class="slot used"><span class="slot-index">[1]</span><span class="slot-value">20</span><span class="logical-index">logical 1</span></div>
+            <div class="slot used"><span class="slot-index">[2]</span><span class="slot-value">30</span><span class="logical-index">logical 2</span></div>
+          </div>
+          <div class="brace-row"><span class="brace-a">A = [10, 20, 30]</span> · <span class="brace-b">B = []</span> · 数据尚未环绕</div>
+        </div>
+        <div class="legend">
+          <span class="legend-item"><span class="swatch used"></span>已初始化</span>
+          <span class="legend-item"><span class="swatch head"></span>head / 逻辑队首</span>
+          <span class="legend-item"><span class="swatch tail"></span>tail / 计算出的队尾写入位置</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="flex-col ring-panel">
+      <div class="ring-label">环形视图 —— 物理槽位按顺时针增加</div>
+      <div class="ring-diagram" role="img" aria-label="初始状态：槽位 0 是 10，槽位 1 是 20，槽位 2 是 30，head 和 tail 都在槽位 0">
+        <div class="ring-track" aria-hidden="true"></div>
+        <div class="ring-node used head tail" style="--x:50%;--y:14%"><span class="ring-node-index">[0]</span><span class="ring-node-value">10</span><span class="ring-node-logical">logical 0</span><span class="ring-flags"><span class="ring-flag head">H</span><span class="ring-flag tail">T</span></span></div>
+        <div class="ring-node used" style="--x:81.18%;--y:68%"><span class="ring-node-index">[1]</span><span class="ring-node-value">20</span><span class="ring-node-logical">logical 1</span></div>
+        <div class="ring-node used" style="--x:18.82%;--y:68%"><span class="ring-node-index">[2]</span><span class="ring-node-value">30</span><span class="ring-node-logical">logical 2</span></div>
+        <div class="ring-center"><strong>head = tail = 0</strong><span>len 3 / cap 3</span><span>full</span></div>
+      </div>
+      <div class="ring-caption">H = head · T = tail · 顺时针是物理索引增加方向</div>
+    </div>
+  </div>
+</div>
+
+<p class="note"><code>tail</code> 不是 <code>VecDeque</code> 中单独存储的字段，而是由 <code>(head + len) % cap</code> 计算出来的写入位置。满缓冲区中 tail 和 head 重合，此时它不是可直接写入的空槽；下一次 push 必须先扩容。</p>
+
+<h3>从连续布局到环绕布局</h3>
+
+<div class="memory-scene">
+  <div class="scene-title">步骤 1：<code>q.pop_front()</code> 返回 10</div>
+  <div class="state-views">
+    <div class="zone-heap">
+      <div class="heap-block" style="width:100%">
+        <div class="heap-title">cap = 3 · head = 1 · len = 2 · tail = (1 + 2) % 3 = 0</div>
+        <div class="slot-row">
+          <div class="slot free tail-slot"><span class="slot-index">[0]</span><span class="slot-value">—</span><span class="slot-markers"><span class="marker tail">tail</span></span></div>
+          <div class="slot used head-slot"><span class="slot-index">[1]</span><span class="slot-value">20</span><span class="logical-index">logical 0</span><span class="slot-markers"><span class="marker head">head</span></span></div>
+          <div class="slot used"><span class="slot-index">[2]</span><span class="slot-value">30</span><span class="logical-index">logical 1</span></div>
+        </div>
+        <div class="brace-row"><span class="brace-a">A = [20, 30]</span> · <span class="brace-b">B = []</span> · 槽位 0 已变为未初始化内存</div>
+      </div>
+    </div>
+    <div class="ring-panel">
+      <div class="ring-label">pop_front 后的环形视图</div>
+      <div class="ring-diagram" role="img" aria-label="pop_front 后：槽位 0 空闲且是 tail，槽位 1 是 head 且值为 20，槽位 2 的值为 30">
+        <div class="ring-track" aria-hidden="true"></div>
+        <div class="ring-node free tail" style="--x:50%;--y:14%"><span class="ring-node-index">[0]</span><span class="ring-node-value">—</span><span class="ring-flags"><span class="ring-flag tail">T</span></span></div>
+        <div class="ring-node used head" style="--x:81.18%;--y:68%"><span class="ring-node-index">[1]</span><span class="ring-node-value">20</span><span class="ring-node-logical">logical 0</span><span class="ring-flags"><span class="ring-flag head">H</span></span></div>
+        <div class="ring-node used" style="--x:18.82%;--y:68%"><span class="ring-node-index">[2]</span><span class="ring-node-value">30</span><span class="ring-node-logical">logical 1</span></div>
+        <div class="ring-center"><strong>head 1 → tail 0</strong><span>len 2 / cap 3</span><span>logical: 20, 30</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="steps">
+    <div class="step"><div class="step-num">1</div><div class="step-text">从旧 <code>head = 0</code> 读出 10。</div></div>
+    <div class="step"><div class="step-num">2</div><div class="step-text"><code>head = (0 + 1) % 3 = 1</code>，<code>len = 2</code>。</div></div>
+    <div class="step"><div class="step-num">3</div><div class="step-text">容量仍为 3；<code>pop_front</code> 不会自动缩小堆分配。</div></div>
+  </div>
+</div>
+
+<div class="memory-scene">
+  <div class="scene-title">步骤 2：<code>q.push_back(40)</code> 在 tail 写入</div>
+  <div class="state-views">
+    <div class="zone-heap">
+      <div class="heap-block" style="width:100%">
+        <div class="heap-title">cap = 3 · head = 1 · len = 3 · 逻辑内容 [20, 30, 40]</div>
+        <div class="slot-row">
+          <div class="slot used"><span class="slot-index">[0]</span><span class="slot-value">40</span><span class="logical-index">logical 2</span></div>
+          <div class="slot used head-slot tail-slot"><span class="slot-index">[1]</span><span class="slot-value">20</span><span class="logical-index">logical 0</span><span class="slot-markers"><span class="marker head">head</span><span class="marker tail">tail=full</span></span></div>
+          <div class="slot used"><span class="slot-index">[2]</span><span class="slot-value">30</span><span class="logical-index">logical 1</span></div>
+        </div>
+        <div class="brace-row"><span class="brace-a">A = [20, 30]</span> → 到达末尾后环绕 → <span class="brace-b">B = [40]</span></div>
+      </div>
+    </div>
+    <div class="ring-panel">
+      <div class="ring-label">push_back(40) 后的环形视图</div>
+      <div class="ring-diagram" role="img" aria-label="push_back 40 后：槽位 0 是 40，槽位 1 是 20 且 head 和 tail 都在这里，槽位 2 是 30，逻辑顺序为 20 30 40">
+        <div class="ring-track" aria-hidden="true"></div>
+        <div class="ring-node used" style="--x:50%;--y:14%"><span class="ring-node-index">[0]</span><span class="ring-node-value">40</span><span class="ring-node-logical">logical 2</span></div>
+        <div class="ring-node used head tail" style="--x:81.18%;--y:68%"><span class="ring-node-index">[1]</span><span class="ring-node-value">20</span><span class="ring-node-logical">logical 0</span><span class="ring-flags"><span class="ring-flag head">H</span><span class="ring-flag tail">T</span></span></div>
+        <div class="ring-node used" style="--x:18.82%;--y:68%"><span class="ring-node-index">[2]</span><span class="ring-node-value">30</span><span class="ring-node-logical">logical 1</span></div>
+        <div class="ring-center"><strong>head = tail = 1</strong><span>len 3 / cap 3</span><span>logical: 20, 30, 40</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="steps">
+    <div class="step"><div class="step-num">1</div><div class="step-text">写入前 <code>tail = (head + len) % cap = (1 + 2) % 3 = 0</code>。</div></div>
+    <div class="step"><div class="step-num">2</div><div class="step-text">把 40 写入物理槽位 0，然后 <code>len = 3</code>。</div></div>
+    <div class="step"><div class="step-num">3</div><div class="step-text">物理内存是 <code>[40, 20, 30]</code>，但从 head 开始的逻辑顺序是 <code>[20, 30, 40]</code>。</div></div>
+  </div>
+</div>
+
+<p class="note">未使用槽位是<strong>未初始化内存</strong>，图中的“—”只是可视化，不代表真实存放了某个空值。</p>
+
+<h3>环形缓冲区操作台</h3>
+<p>操作台从初始化状态 <code>[10, 20, 30]</code> 开始。先点击 <code>pop_front</code>，再用值 40 点击 <code>push_back</code>，即可重现上方的环绕过程。</p>
+
+<section class="lab" aria-labelledby="lab-title">
+  <div class="lab-header">
+    <div>
+      <h3 class="lab-title" id="lab-title">可交互内存快照</h3>
+      <div class="lab-state" id="labState">cap=3 · head=0 · len=3</div>
+    </div>
+    <div class="controls">
+      <div class="field">
+        <label for="nextValue">写入的 i32 值</label>
+        <input id="nextValue" type="number" value="40" step="10" inputmode="numeric">
+      </div>
+      <button class="btn primary" type="button" data-op="push-front">push_front</button>
+      <button class="btn primary" type="button" data-op="push-back">push_back</button>
+      <button class="btn" type="button" data-op="pop-front">pop_front</button>
+      <button class="btn" type="button" data-op="pop-back">pop_back</button>
+      <button class="btn" type="button" data-op="contiguous">make_contiguous</button>
+      <button class="btn ghost" type="button" data-op="reset">重置</button>
+    </div>
+  </div>
+
+  <div class="lab-views">
+    <div class="heap-block" style="width:100%">
+      <div class="heap-title" id="labHeapTitle">物理堆槽位</div>
+      <div class="slot-row" id="labSlots" aria-label="VecDeque 物理槽位"></div>
+    </div>
+    <div class="ring-panel">
+      <div class="ring-label">实时环形视图</div>
+      <div class="ring-diagram" id="labRing" role="img" aria-label="VecDeque 实时环形视图"></div>
+      <div class="ring-caption">槽位按顺时针增加 · H = head · T = tail</div>
+    </div>
+  </div>
+  <div class="logical-view" id="logicalView" aria-label="逻辑迭代顺序"></div>
+  <div class="slice-output" id="sliceOutput"></div>
+  <div class="lab-message" id="labMessage" aria-live="polite">初始化完成：3 个 i32 连续存放，当前缓冲区已满。</div>
+</section>
+
+<h2>三、逻辑索引如何映射到物理内存</h2>
+
+<div class="code-block"><span class="cm">// i 是用户看到的逻辑索引，要先保证 i &lt; len</span>
+physical_index = (head + i) % cap
+
+<span class="cm">// pop_front() + push_back(40) 后: head = 1, cap = 3</span>
+q[<span class="num">0</span>] → slot[(<span class="num">1</span> + <span class="num">0</span>) % <span class="num">3</span>] → slot[<span class="num">1</span>] → <span class="num">20</span>
+q[<span class="num">1</span>] → slot[(<span class="num">1</span> + <span class="num">1</span>) % <span class="num">3</span>] → slot[<span class="num">2</span>] → <span class="num">30</span>
+q[<span class="num">2</span>] → slot[(<span class="num">1</span> + <span class="num">2</span>) % <span class="num">3</span>] → slot[<span class="num">0</span>] → <span class="num">40</span></div>
+
+<h3><code>as_slices()</code>：一个逻辑序列，最多两段物理切片</h3>
+
+<div class="memory-scene">
+  <div class="steps">
+    <div class="step"><div class="step-num">A</div><div class="step-text">第一段从 <code>head</code> 向堆块末尾延伸：<code>&amp;[20, 30]</code></div></div>
+    <div class="step"><div class="step-num">B</div><div class="step-text">如果发生环绕，第二段从物理槽位 0 开始：<code>&amp;[40]</code></div></div>
+    <div class="step"><div class="step-num">→</div><div class="step-text">迭代顺序永远是 A 后接 B，所以用户看到 <code>[20, 30, 40]</code></div></div>
+  </div>
+</div>
+
+<p><code>VecDeque</code> 不能总是直接当作一个 <code>&amp;[T]</code>；跨尾部时必须使用 <code>as_slices()</code> 获取两段，或先调用 <code>make_contiguous()</code> 重排为一段。</p>
+
+<h2>四、双端增删</h2>
+
+<div class="operation-grid">
+  <article class="operation front">
+    <div class="operation-title">push_front(x)</div>
+    <div class="operation-formula">head = (head - 1) mod cap</div>
+    <p>先把 head 向前环绕一格，再在新 head 写入 x，len += 1。</p>
+  </article>
+  <article class="operation back">
+    <div class="operation-title">push_back(x)</div>
+    <div class="operation-formula">tail = (head + len) mod cap</div>
+    <p>在 tail 写入 x，然后 len += 1。head 保持不变。</p>
+  </article>
+  <article class="operation front">
+    <div class="operation-title">pop_front()</div>
+    <div class="operation-formula">read(head); head = (head + 1) mod cap</div>
+    <p>读出队首，head 向后一格，len -= 1。不会自动缩容。</p>
+  </article>
+  <article class="operation back">
+    <div class="operation-title">pop_back()</div>
+    <div class="operation-formula">len -= 1; read((head + len) mod cap)</div>
+    <p>先缩短逻辑长度，再从原队尾槽位读出元素。</p>
+  </article>
+</div>
+
+<div class="memory-scene">
+  <div class="scene-title">为什么两端都是 O(1)</div>
+  <div class="steps">
+    <div class="step"><div class="step-num">1</div><div class="step-text">元素不需要像 <code>Vec::insert(0, x)</code> 那样整段后移。</div></div>
+    <div class="step"><div class="step-num">2</div><div class="step-text">队首改变只更新 <code>head</code>；队尾位置由 <code>head + len</code> 计算。</div></div>
+    <div class="step"><div class="step-num">3</div><div class="step-text">只有 <code>len == cap</code> 的 push 才需扩容，因此 push 是均摊 O(1)。</div></div>
+  </div>
+</div>
+
+<h2>五、中间插入、删除与连续化</h2>
+
+<h3><code>insert(i, x)</code> 会选较短的一侧搬移</h3>
+
+<p><code>Vec</code> 中间插入只能移动后缀；<code>VecDeque</code> 可以在前缀和后缀中选较短的一边，将空洞从最近的端点搬到插入位置。</p>
+
+<div class="memory-scene">
+  <div class="move-diagram">
+    <span class="move-box">front</span>
+    <span class="move-box hot">i 个元素</span>
+    <span class="move-arrow">← 选更小一侧 →</span>
+    <span class="move-box hot">len - i 个元素</span>
+    <span class="move-box">back</span>
+  </div>
+  <p class="note">搬移量约为 <code>min(i, len - i)</code>，时间复杂度仍是 O(n)，但通常比固定搬后缀更少。<code>remove(i)</code> 也使用同样的就近搬移思路来填补空洞。</p>
+</div>
+
+<h3><code>make_contiguous()</code> 把两段变成一段</h3>
+
+<div class="memory-scene">
+  <div class="flex-row">
+    <div class="flex-col">
+      <div class="zone-label" style="color:var(--purple)">调用前：环绕的两段</div>
+      <div class="move-diagram">
+        <span class="move-box hot">[40]</span><span class="move-box hot">[20, 30]</span>
+      </div>
+    </div>
+    <div class="move-arrow" aria-hidden="true">──▶</div>
+    <div class="flex-col">
+      <div class="zone-label" style="color:var(--green)">调用后：一个连续切片</div>
+      <div class="move-diagram">
+        <span class="move-box hot">[20, 30, 40]</span>
+      </div>
+    </div>
+  </div>
+  <div class="ring-pair">
+    <div class="ring-panel">
+      <div class="ring-label">调用前：head = 1</div>
+      <div class="ring-diagram" role="img" aria-label="make_contiguous 前：head 在槽位 1，逻辑顺序 20 30 40 跨过环边界">
+        <div class="ring-track" aria-hidden="true"></div>
+        <div class="ring-node used" style="--x:50%;--y:14%"><span class="ring-node-index">[0]</span><span class="ring-node-value">40</span><span class="ring-node-logical">logical 2</span></div>
+        <div class="ring-node used head tail" style="--x:81.18%;--y:68%"><span class="ring-node-index">[1]</span><span class="ring-node-value">20</span><span class="ring-node-logical">logical 0</span><span class="ring-flags"><span class="ring-flag head">H</span><span class="ring-flag tail">T</span></span></div>
+        <div class="ring-node used" style="--x:18.82%;--y:68%"><span class="ring-node-index">[2]</span><span class="ring-node-value">30</span><span class="ring-node-logical">logical 1</span></div>
+        <div class="ring-center"><strong>A + B</strong><span>[20, 30] + [40]</span><span>full</span></div>
+      </div>
+    </div>
+    <div class="move-arrow" aria-hidden="true">──▶</div>
+    <div class="ring-panel">
+      <div class="ring-label">一种等价连续结果：head = 0</div>
+      <div class="ring-diagram" role="img" aria-label="make_contiguous 后的一种结果：head 在槽位 0，物理顺序与逻辑顺序都是 20 30 40">
+        <div class="ring-track" aria-hidden="true"></div>
+        <div class="ring-node used head tail" style="--x:50%;--y:14%"><span class="ring-node-index">[0]</span><span class="ring-node-value">20</span><span class="ring-node-logical">logical 0</span><span class="ring-flags"><span class="ring-flag head">H</span><span class="ring-flag tail">T</span></span></div>
+        <div class="ring-node used" style="--x:81.18%;--y:68%"><span class="ring-node-index">[1]</span><span class="ring-node-value">30</span><span class="ring-node-logical">logical 1</span></div>
+        <div class="ring-node used" style="--x:18.82%;--y:68%"><span class="ring-node-index">[2]</span><span class="ring-node-value">40</span><span class="ring-node-logical">logical 2</span></div>
+        <div class="ring-center"><strong>A 一段连续</strong><span>[20, 30, 40]</span><span>B = []</span></div>
+      </div>
+    </div>
+  </div>
+  <p class="note">返回的 <code>&amp;mut [T]</code> 在逻辑顺序上连续。标准库不承诺整理后 <code>head</code> 必须等于 0；上图只展示一种等价结果。</p>
+</div>
+
+<h2>六、扩容时发生什么</h2>
+
+<p>当 <code>len == cap</code> 时，下一次 <code>push_front</code> 或 <code>push_back</code> 必须让 <code>RawVec</code> 增长。扩容后物理边界变了，实现会搬移环绕数据的一部分，以保持逻辑顺序。</p>
+
+<div class="memory-scene">
+  <div class="steps">
+    <div class="step"><div class="step-num">1</div><div class="step-text">请求更大的堆分配，新 <code>cap</code> 至少满足所需长度。</div></div>
+    <div class="step"><div class="step-num">2</div><div class="step-text">如果数据原本跨越旧容量的边界，搬移较合适的那一段，使新边界下的环顺序正确。</div></div>
+    <div class="step"><div class="step-num">3</div><div class="step-text">更新 <code>ptr</code> / <code>cap</code> / 必要时的 <code>head</code>，再写入新元素。</div></div>
+  </div>
+  <p class="note warning">扩容可能改变堆地址，也可能搬动环内元素，因此之前取得的引用不能跨过这次可变操作存活。</p>
+</div>
+
+<p class="note">增长因子、首次非零容量以及具体搬移策略是标准库实现细节，不应依赖“永远恰好翻倍”。上方操作台为便于观察，在满容时使用翻倍并线性化的等价模拟。</p>
+
+<h3>缩容与清空</h3>
+
+<div class="code-block">q.<span class="fn">clear</span>();          <span class="cm">// Drop 所有元素，len = 0，cap 通常保留</span>
+q.<span class="fn">truncate</span>(n);      <span class="cm">// Drop 逻辑区间 [n, len)，cap 不变</span>
+q.<span class="fn">shrink_to_fit</span>(); <span class="cm">// 请求将容量缩到尽量接近 len，可能重分配</span></div>
+
+<h2>七、索引、迭代与原地修改</h2>
+
+<div class="code-block"><span class="kw">let</span> x = q[<span class="num">2</span>];       <span class="cm">// 边界检查 + 环形索引计算 + 读取</span>
+q[<span class="num">2</span>] = <span class="num">99</span>;         <span class="cm">// 在对应物理槽位原地写入</span>
+
+<span class="kw">for</span> value <span class="kw">in</span> &amp;q {  <span class="cm">// 逻辑顺序: 先迭代 A，再迭代 B</span>
+    <span class="fn">use_value</span>(value);
+}
+
+<span class="kw">let</span> contiguous: &amp;<span class="kw">mut</span> [<span class="ty">i32</span>] = q.<span class="fn">make_contiguous</span>();
+contiguous.<span class="fn">sort</span>();    <span class="cm">// 需要一个连续切片的算法</span></div>
+
+<p>单次索引是 O(1)，但与 <code>Vec</code> 相比多了环形映射。如果热路径算法强依赖连续切片，应直接使用 <code>Vec</code>，或在合适的边界上显式调用 <code>make_contiguous()</code>。</p>
+
+<h2>八、内存生命周期：Drop</h2>
+
+<div class="memory-scene">
+  <div class="steps">
+    <div class="step"><div class="step-num">1</div><div class="step-text">按逻辑元素区间遍历已初始化槽位，对每个 <code>T</code> 执行 Drop。</div></div>
+    <div class="step"><div class="step-num">2</div><div class="step-text"><code>RawVec</code> 释放容量对应的整个堆分配；未初始化槽位不会被当作 <code>T</code> 执行 Drop。</div></div>
+    <div class="step"><div class="step-num">3</div><div class="step-text">栈帧回收 <code>head</code>、<code>len</code> 和 <code>RawVec</code> 的小型控制结构。</div></div>
+  </div>
+</div>
+
+<p class="note">对 <code>i32</code> 这类无 Drop 副作用的类型，元素 Drop 会被优化掉。对 <code>String</code> 等类型，先释放每个元素自己持有的资源，再释放 VecDeque 的槽位堆块。</p>
+
+<h2>九、操作复杂度速查</h2>
+
+<div class="compare-wrap">
+<table class="compare-table">
+  <thead>
+    <tr><th>操作</th><th>时间复杂度</th><th>可能重分配</th><th>内存动作</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>push_front / push_back</code></td><td>均摊 O(1)</td><td class="yes">满容时可能</td><td>更新 head 或 tail 槽位；必要时增长</td></tr>
+    <tr><td><code>pop_front / pop_back</code></td><td>O(1)</td><td class="no">否</td><td><code>ptr::read</code> + 更新 head / len</td></tr>
+    <tr><td><code>get(i)</code> / <code>q[i]</code></td><td>O(1)</td><td class="no">否</td><td>边界检查 + 环形物理寻址</td></tr>
+    <tr><td><code>insert(i, x)</code></td><td>O(min(i, len-i))</td><td class="yes">满容时可能</td><td>向较近端点搬移元素</td></tr>
+    <tr><td><code>remove(i)</code></td><td>O(min(i, len-i))</td><td class="no">否</td><td>向较近端点填补空洞</td></tr>
+    <tr><td><code>as_slices()</code></td><td>O(1)</td><td class="no">否</td><td>借用一段或两段连续内存</td></tr>
+    <tr><td><code>make_contiguous()</code></td><td>O(n)</td><td class="no">否</td><td>在已有分配内重排元素</td></tr>
+    <tr><td><code>clear / truncate</code></td><td>O(k)</td><td class="no">否</td><td>Drop k 个被移除元素，cap 保留</td></tr>
+    <tr><td><code>shrink_to_fit</code></td><td>O(n)</td><td class="yes">可能</td><td>缩小堆分配并保留逻辑顺序</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2>十、VecDeque 与 Vec 的选择</h2>
+
+<div class="compare-wrap">
+<table class="compare-table">
+  <thead>
+    <tr><th>维度</th><th>VecDeque&lt;T&gt;</th><th>Vec&lt;T&gt;</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>队首增删</td><td class="yes">均摊 O(1)</td><td>O(n)，需搬移其他元素</td></tr>
+    <tr><td>队尾增删</td><td>均摊 O(1)</td><td>均摊 O(1)</td></tr>
+    <tr><td>内存连续性</td><td>逻辑连续，物理上可能分两段</td><td class="yes">始终一段连续内存</td></tr>
+    <tr><td>栈上控制结构</td><td>概念上 4 个 usize</td><td>概念上 3 个 usize</td></tr>
+    <tr><td>适合场景</td><td>队列、滑动窗口、两端工作队列</td><td>随机访问、排序、连续切片 API</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p class="footer">Rust learning notes · 概念参考 rust/library/alloc/src/collections/vec_deque · 2026-07-29</p>
+
+</main>
+
+<script>
+(() => {
+  const initial = { capacity: 3, head: 0, values: [10, 20, 30] };
+  const state = { capacity: initial.capacity, head: initial.head, values: [...initial.values] };
+
+  const slotsEl = document.getElementById('labSlots');
+  const stateEl = document.getElementById('labState');
+  const heapTitleEl = document.getElementById('labHeapTitle');
+  const logicalEl = document.getElementById('logicalView');
+  const slicesEl = document.getElementById('sliceOutput');
+  const ringEl = document.getElementById('labRing');
+  const messageEl = document.getElementById('labMessage');
+  const valueEl = document.getElementById('nextValue');
+
+  const mod = (value, base) => ((value % base) + base) % base;
+  const physicalIndex = logicalIndex => mod(state.head + logicalIndex, state.capacity);
+
+  function escapeText(value) {
+    return String(value)
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#039;');
+  }
+
+  function slices() {
+    const firstLength = Math.min(state.values.length, state.capacity - state.head);
+    return [state.values.slice(0, firstLength), state.values.slice(firstLength)];
+  }
+
+  function render(message) {
+    const logicalByPhysical = new Map();
+    state.values.forEach((value, logicalIndex) => {
+      logicalByPhysical.set(physicalIndex(logicalIndex), { value, logicalIndex });
+    });
+
+    const tail = mod(state.head + state.values.length, state.capacity);
+    const full = state.values.length === state.capacity;
+    const slotMarkup = [];
+
+    for (let physical = 0; physical < state.capacity; physical += 1) {
+      const item = logicalByPhysical.get(physical);
+      const isHead = physical === state.head;
+      const isTail = physical === tail;
+      const classes = ['slot', item ? 'used' : 'free'];
+      if (isHead) classes.push('head-slot');
+      if (isTail) classes.push('tail-slot');
+
+      const markers = [];
+      if (isHead) markers.push('<span class="marker head">head</span>');
+      if (isTail) markers.push(`<span class="marker tail">${full ? 'tail=full' : 'tail'}</span>`);
+
+      slotMarkup.push(
+        `<div class="${classes.join(' ')}">` +
+        `<span class="slot-index">[${physical}]</span>` +
+        `<span class="slot-value">${item ? escapeText(item.value) : '—'}</span>` +
+        (item ? `<span class="logical-index">logical ${item.logicalIndex}</span>` : '') +
+        `<span class="slot-markers">${markers.join('')}</span>` +
+        '</div>'
+      );
+    }
+
+    slotsEl.style.gridTemplateColumns = `repeat(${state.capacity}, minmax(80px, 1fr))`;
+    slotsEl.style.minWidth = `${Math.max(320, state.capacity * 80)}px`;
+    slotsEl.innerHTML = slotMarkup.join('');
+
+    const ringMarkup = ['<div class="ring-track" aria-hidden="true"></div>'];
+    const ringNodeSize = Math.max(28, Math.min(72, Math.floor(560 / state.capacity)));
+    const ringRadius = state.capacity <= 6 ? 36 : 40;
+    for (let physical = 0; physical < state.capacity; physical += 1) {
+      const item = logicalByPhysical.get(physical);
+      const isHead = physical === state.head;
+      const isTail = physical === tail;
+      const angle = -Math.PI / 2 + (physical * Math.PI * 2) / state.capacity;
+      const x = 50 + ringRadius * Math.cos(angle);
+      const y = 50 + ringRadius * Math.sin(angle);
+      const classes = ['ring-node', item ? 'used' : 'free'];
+      if (isHead) classes.push('head');
+      if (isTail) classes.push('tail');
+      if (state.capacity > 6) classes.push('compact');
+      if (state.capacity > 12) classes.push('dense');
+
+      const flags = [];
+      if (isHead) flags.push('<span class="ring-flag head">H</span>');
+      if (isTail) flags.push('<span class="ring-flag tail">T</span>');
+
+      ringMarkup.push(
+        `<div class="${classes.join(' ')}" style="--x:${x.toFixed(2)}%;--y:${y.toFixed(2)}%;--node-size:${ringNodeSize}px">` +
+        `<span class="ring-node-index">[${physical}]</span>` +
+        `<span class="ring-node-value">${item ? escapeText(item.value) : '—'}</span>` +
+        (item ? `<span class="ring-node-logical">logical ${item.logicalIndex}</span>` : '') +
+        `<span class="ring-flags">${flags.join('')}</span>` +
+        '</div>'
+      );
+    }
+    ringMarkup.push(
+      `<div class="ring-center"><strong>head ${state.head} → tail ${tail}</strong>` +
+      `<span>len ${state.values.length} / cap ${state.capacity}</span>` +
+      `<span>${full ? 'full · push 先扩容' : `free ${state.capacity - state.values.length}`}</span></div>`
+    );
+    ringEl.innerHTML = ringMarkup.join('');
+    ringEl.setAttribute(
+      'aria-label',
+      `VecDeque 环形视图：capacity ${state.capacity}，head ${state.head}，tail ${tail}，逻辑顺序 ${state.values.join(', ') || '空'}`
+    );
+
+    stateEl.textContent = `cap=${state.capacity} · head=${state.head} · len=${state.values.length}`;
+    heapTitleEl.textContent = `物理堆槽位 · cap=${state.capacity} · head=${state.head} · len=${state.values.length} · tail=${tail}`;
+
+    logicalEl.innerHTML = '<span class="logical-label">逻辑顺序</span>' + (
+      state.values.length
+        ? state.values.map((value, index) => `<span class="logical-chip">[${index}] ${escapeText(value)}</span>`).join('')
+        : '<span class="note">空</span>'
+    );
+
+    const [a, b] = slices();
+    slicesEl.innerHTML = `<code>as_slices()</code> → <span class="a">A = [${a.map(escapeText).join(', ')}]</span>` +
+      ` · <span class="b">B = [${b.map(escapeText).join(', ')}]</span>`;
+
+    if (message) messageEl.textContent = message;
+  }
+
+  function growIfFull() {
+    if (state.values.length < state.capacity) return false;
+    const oldCapacity = state.capacity;
+    state.capacity *= 2;
+    state.head = 0;
+    return oldCapacity;
+  }
+
+  function readValue() {
+    const value = Number(valueEl.value);
+    if (!Number.isFinite(value) || !Number.isInteger(value)) {
+      messageEl.textContent = '请输入一个有效的 i32 整数。';
+      valueEl.focus();
+      return null;
+    }
+    if (value < -2147483648 || value > 2147483647) {
+      messageEl.textContent = '输入超出 i32 范围。';
+      valueEl.focus();
+      return null;
+    }
+    valueEl.value = String(value + 10);
+    return value;
+  }
+
+  function reset() {
+    state.capacity = initial.capacity;
+    state.head = initial.head;
+    state.values = [...initial.values];
+    valueEl.value = '40';
+    render('初始化完成：3 个 i32 连续存放，当前缓冲区已满。');
+  }
+
+  document.querySelector('.controls').addEventListener('click', event => {
+    const button = event.target.closest('button[data-op]');
+    if (!button) return;
+    const operation = button.dataset.op;
+
+    if (operation === 'reset') {
+      reset();
+      return;
+    }
+
+    if (operation === 'contiguous') {
+      if (state.head === 0 || state.values.length === 0) {
+        render('当前已经是一段连续的等价布局。');
+      } else {
+        const oldHead = state.head;
+        state.head = 0;
+        render(`make_contiguous(): 将逻辑元素重排为从槽位 0 开始的连续段（原 head=${oldHead}）。`);
+      }
+      return;
+    }
+
+    if (operation === 'pop-front') {
+      if (state.values.length === 0) {
+        render('pop_front() → None：队列已空。');
+        return;
+      }
+      const oldHead = state.head;
+      const value = state.values.shift();
+      state.head = mod(state.head + 1, state.capacity);
+      render(`pop_front() → ${value}：读出槽位 ${oldHead}，head 前进到 ${state.head}。`);
+      return;
+    }
+
+    if (operation === 'pop-back') {
+      if (state.values.length === 0) {
+        render('pop_back() → None：队列已空。');
+        return;
+      }
+      const slot = physicalIndex(state.values.length - 1);
+      const value = state.values.pop();
+      render(`pop_back() → ${value}：读出原队尾槽位 ${slot}，head 不变。`);
+      return;
+    }
+
+    const value = readValue();
+    if (value === null) return;
+    const oldCapacity = growIfFull();
+
+    if (operation === 'push-front') {
+      state.head = mod(state.head - 1, state.capacity);
+      state.values.unshift(value);
+      const prefix = oldCapacity ? `已从 cap=${oldCapacity} 扩容到 ${state.capacity}并线性化；` : '';
+      render(`${prefix}push_front(${value}): head 后退到槽位 ${state.head} 并写入。`);
+      return;
+    }
+
+    if (operation === 'push-back') {
+      const slot = physicalIndex(state.values.length);
+      state.values.push(value);
+      const prefix = oldCapacity ? `已从 cap=${oldCapacity} 扩容到 ${state.capacity}并线性化；` : '';
+      render(`${prefix}push_back(${value}): 写入物理槽位 ${slot}。`);
+    }
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>

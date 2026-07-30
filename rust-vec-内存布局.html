@@ -1,0 +1,965 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rust Vec&lt;T&gt; 内存结构图解</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'SF Mono', 'JetBrains Mono', 'Fira Code', monospace;
+  background: #0d1117;
+  color: #c9d1d9;
+  line-height: 1.7;
+  padding: 40px 20px;
+}
+.container { max-width: 1100px; margin: 0 auto; }
+h1 {
+  font-size: 1.8rem;
+  color: #58a6ff;
+  margin-bottom: 8px;
+  border-bottom: 1px solid #21262d;
+  padding-bottom: 12px;
+}
+.subtitle { color: #8b949e; font-size: 0.9rem; margin-bottom: 40px; }
+h2 {
+  font-size: 1.3rem;
+  color: #f0883e;
+  margin: 48px 0 16px;
+  padding-left: 12px;
+  border-left: 3px solid #f0883e;
+}
+h3 { font-size: 1.05rem; color: #79c0ff; margin: 28px 0 12px; }
+p { margin: 10px 0; color: #c9d1d9; }
+.note { color: #8b949e; font-size: 0.85rem; font-style: italic; margin: 6px 0; }
+
+/* 内存区域通用 */
+.memory-scene {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 24px;
+  margin: 20px 0;
+  overflow-x: auto;
+}
+.zone-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 10px;
+  font-weight: bold;
+}
+.zone-stack .zone-label { color: #7ee787; }
+.zone-heap .zone-label { color: #d2a8ff; }
+.zone-static .zone-label { color: #ffa657; }
+
+/* 栈帧 */
+.stack-frame {
+  display: inline-flex;
+  flex-direction: column;
+  border: 2px solid #7ee787;
+  border-radius: 6px;
+  overflow: hidden;
+  margin: 8px 0;
+}
+.stack-frame .frame-title {
+  background: #1a3a2a;
+  color: #7ee787;
+  padding: 4px 12px;
+  font-size: 0.8rem;
+  text-align: center;
+}
+.stack-row {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid #30363d;
+}
+.stack-row:last-child { border-bottom: none; }
+.stack-cell {
+  padding: 8px 14px;
+  font-size: 0.82rem;
+  border-right: 1px solid #30363d;
+  min-width: 90px;
+  text-align: center;
+}
+.stack-cell:last-child { border-right: none; }
+.stack-cell.field { color: #79c0ff; font-weight: bold; background: #0d1117; }
+.stack-cell.value { color: #ffa657; }
+.stack-cell.type { color: #8b949e; font-size: 0.75rem; }
+.stack-cell.size { color: #6e7681; font-size: 0.72rem; min-width: 60px; }
+
+/* 堆块 */
+.heap-block {
+  display: inline-flex;
+  flex-direction: column;
+  border: 2px solid #d2a8ff;
+  border-radius: 6px;
+  overflow: hidden;
+  margin: 8px 16px 8px 0;
+  vertical-align: top;
+}
+.heap-block .heap-title {
+  background: #2a1a3a;
+  color: #d2a8ff;
+  padding: 4px 12px;
+  font-size: 0.8rem;
+  text-align: center;
+}
+.heap-slots {
+  display: flex;
+  align-items: stretch;
+}
+.heap-slot {
+  padding: 10px 14px;
+  font-size: 0.85rem;
+  border-right: 1px solid #30363d;
+  text-align: center;
+  min-width: 48px;
+  position: relative;
+}
+.heap-slot:last-child { border-right: none; }
+.heap-slot.used { background: #1c1230; color: #d2a8ff; }
+.heap-slot.free { background: #0d1117; color: #484f58; border-style: dashed; }
+.heap-slot .idx {
+  position: absolute;
+  top: 2px;
+  left: 4px;
+  font-size: 0.6rem;
+  color: #6e7681;
+}
+.heap-slot.highlight-new { background: #1a3a1a; color: #7ee787; }
+.heap-slot.highlight-del { background: #3a1a1a; color: #f85149; text-decoration: line-through; }
+.heap-slot.highlight-move { background: #2a2a1a; color: #e3b341; }
+
+/* 静态区 */
+.static-block {
+  display: inline-flex;
+  flex-direction: column;
+  border: 2px solid #ffa657;
+  border-radius: 6px;
+  overflow: hidden;
+  margin: 8px 0;
+}
+.static-block .static-title {
+  background: #2a2010;
+  color: #ffa657;
+  padding: 4px 12px;
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+/* 箭头 */
+.arrow-container { margin: 12px 0; padding-left: 20px; }
+.arrow {
+  color: #58a6ff;
+  font-size: 0.8rem;
+}
+.arrow::before { content: "──▶ "; }
+
+/* 代码块 */
+.code-block {
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 16px;
+  margin: 12px 0;
+  overflow-x: auto;
+  font-size: 0.82rem;
+  line-height: 1.8;
+  font-family: inherit;
+  white-space: pre;
+  tab-size: 4;
+}
+.code-block code { font: inherit; color: inherit; }
+.code-block .kw { color: #ff7b72; }
+.code-block .ty { color: #79c0ff; }
+.code-block .fn { color: #d2a8ff; }
+.code-block .num { color: #79c0ff; }
+.code-block .str { color: #a5d6ff; }
+.code-block .cm { color: #8b949e; }
+.code-block .mac { color: #ffa657; }
+
+/* 操作步骤 */
+.steps { margin: 16px 0; }
+.step {
+  display: flex;
+  gap: 12px;
+  margin: 10px 0;
+  align-items: flex-start;
+}
+.step-num {
+  background: #21262d;
+  color: #58a6ff;
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.step-text { font-size: 0.88rem; }
+.step-text code {
+  background: #21262d;
+  padding: 1px 6px;
+  border-radius: 3px;
+  color: #79c0ff;
+  font-size: 0.82rem;
+}
+
+/* 对比表 */
+.compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+  font-size: 0.82rem;
+}
+.compare-table th {
+  background: #21262d;
+  color: #58a6ff;
+  padding: 8px 12px;
+  text-align: left;
+  border: 1px solid #30363d;
+}
+.compare-table td {
+  padding: 8px 12px;
+  border: 1px solid #30363d;
+}
+.compare-table tr:nth-child(even) td { background: #161b22; }
+
+/* 分割线 */
+hr { border: none; border-top: 1px solid #21262d; margin: 40px 0; }
+
+/* 布局辅助 */
+.flex-row { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+.flex-col { display: flex; flex-direction: column; gap: 8px; }
+
+/* 容量标注 */
+.cap-annotation {
+  font-size: 0.72rem;
+  color: #6e7681;
+  margin-top: 4px;
+  text-align: center;
+}
+.len-bracket {
+  border-bottom: 2px solid #7ee787;
+  display: inline-block;
+  padding-bottom: 2px;
+  margin-top: 4px;
+}
+.cap-bracket {
+  border-bottom: 2px dashed #d2a8ff;
+  display: inline-block;
+  padding-bottom: 2px;
+  margin-top: 2px;
+}
+
+/* 动画提示 */
+.anim-hint {
+  font-size: 0.72rem;
+  color: #484f58;
+  text-align: right;
+  margin-top: 4px;
+}
+
+/* 响应式 */
+@media (max-width: 700px) {
+  .flex-row { flex-direction: column; }
+  .heap-slot { min-width: 36px; padding: 8px 8px; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>Rust Vec&lt;T&gt; 内存结构图解</h1>
+<p class="subtitle">栈 · 堆 · 静态数据区 —— 以及增删改的底层实现 | 2026-07-28</p>
+
+<!-- ═══════════════════════════════════════════ -->
+<h2>一、Vec&lt;T&gt; 的本质</h2>
+
+<p><code>Vec&lt;T&gt;</code> 是 Rust 标准库中最常用的堆分配容器。它在栈上只占 <strong>24 字节</strong>（64 位平台），真正的数据全部在堆上。</p>
+
+<pre class="code-block"><code><span class="cm">// 标准库中的定义 (简化)</span>
+<span class="kw">pub struct</span> <span class="ty">Vec</span>&lt;<span class="ty">T</span>, <span class="ty">A</span>: <span class="ty">Allocator</span> = <span class="ty">Global</span>&gt; {
+    buf: <span class="ty">RawVec</span>&lt;<span class="ty">T</span>, <span class="ty">A</span>&gt;,   <span class="cm">// 管理堆内存: ptr + cap</span>
+    len: <span class="ty">usize</span>,              <span class="cm">// 已使用的元素个数</span>
+}
+
+<span class="kw">pub struct</span> <span class="ty">RawVec</span>&lt;<span class="ty">T</span>, <span class="ty">A</span>&gt; {
+    ptr: <span class="ty">Unique</span>&lt;<span class="ty">T</span>&gt;, <span class="cm">// 非空指针 (NonNull + 所有权标记)</span>
+    cap: <span class="ty">usize</span>,       <span class="cm">// 已分配的容量 (元素个数)</span>
+    alloc: <span class="ty">A</span>,         <span class="cm">// 分配器 (默认 Global, 零大小)</span>
+}</code></pre>
+
+<p class="note">Global 分配器是 ZST（零大小类型），编译器会优化掉，所以 Vec&lt;T&gt; 实际就是 3 个 usize = 24 字节。</p>
+
+<!-- ═══════════════════════════════════════════ -->
+<h2>二、三段内存区域全景</h2>
+
+<p>以 <code>let v: Vec&lt;i32&gt; = vec![10, 20, 30];</code> 为例：</p>
+
+<div class="memory-scene">
+  <div class="flex-row">
+
+    <!-- 栈 -->
+    <div class="flex-col">
+      <div class="zone-stack">
+        <div class="zone-label">栈 (Stack) — 当前函数帧</div>
+        <div class="stack-frame">
+          <div class="frame-title">Vec&lt;i32&gt; v — 共 24 字节</div>
+          <div class="stack-row">
+            <div class="stack-cell field">ptr</div>
+            <div class="stack-cell value">0x7f3a_0040</div>
+            <div class="stack-cell type">*mut i32</div>
+            <div class="stack-cell size">8 B</div>
+          </div>
+          <div class="stack-row">
+            <div class="stack-cell field">cap</div>
+            <div class="stack-cell value">4</div>
+            <div class="stack-cell type">usize</div>
+            <div class="stack-cell size">8 B</div>
+          </div>
+          <div class="stack-row">
+            <div class="stack-cell field">len</div>
+            <div class="stack-cell value">3</div>
+            <div class="stack-cell type">usize</div>
+            <div class="stack-cell size">8 B</div>
+          </div>
+        </div>
+      </div>
+      <div class="arrow-container">
+        <div class="arrow">ptr 指向堆上首元素</div>
+      </div>
+    </div>
+
+    <!-- 堆 -->
+    <div class="flex-col">
+      <div class="zone-heap">
+        <div class="zone-label">堆 (Heap) — 由 GlobalAlloc 分配</div>
+        <div class="heap-block">
+          <div class="heap-title">0x7f3a_0040 起 · cap = 4 个 i32 = 16 B</div>
+          <div class="heap-slots">
+            <div class="heap-slot used"><span class="idx">[0]</span>10</div>
+            <div class="heap-slot used"><span class="idx">[1]</span>20</div>
+            <div class="heap-slot used"><span class="idx">[2]</span>30</div>
+            <div class="heap-slot free"><span class="idx">[3]</span>—</div>
+          </div>
+        </div>
+        <div class="cap-annotation">
+          <span class="len-bracket">◀── len = 3 ──▶</span>&nbsp;
+          <span class="cap-bracket">◀──── cap = 4 ────▶</span>
+        </div>
+        <p class="note">分配策略: 首次 vec![] 精确分配; push 扩容时倍增 (4→8→16…)</p>
+      </div>
+    </div>
+
+    <!-- 静态数据区 -->
+    <div class="flex-col">
+      <div class="zone-static">
+        <div class="zone-label">静态数据区 (.rodata / .data)</div>
+        <div class="static-block">
+          <div class="static-title">vec![10, 20, 30] 的编译期模板</div>
+          <div class="heap-slots">
+            <div class="heap-slot used">10</div>
+            <div class="heap-slot used">20</div>
+            <div class="heap-slot used">30</div>
+          </div>
+        </div>
+        <p class="note" style="max-width:260px">
+          vec![] 宏展开后，编译器在 .rodata 放一份初始数据模板，
+          运行时 memcpy 到堆。之后修改 Vec 不影响 .rodata。
+        </p>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<h3>vec![] 宏展开 (简化)</h3>
+<pre class="code-block"><code><span class="cm">// vec![10, 20, 30] 大致展开为:</span>
+{
+    <span class="kw">let</span> <span class="kw">mut</span> v = <span class="ty">Vec</span>::<span class="fn">with_capacity</span>(<span class="num">3</span>);  <span class="cm">// 堆上 alloc 12B</span>
+    v.<span class="fn">push</span>(<span class="num">10</span>); <span class="cm">// 从 .rodata 模板逐元素拷贝 (或直接 memcpy 整块)</span>
+    v.<span class="fn">push</span>(<span class="num">20</span>);
+    v.<span class="fn">push</span>(<span class="num">30</span>);
+    v
+}
+<span class="cm">// 实际 LLVM 优化后通常是一次 memcpy(heap_ptr, rodata_ptr, 12)</span></code></pre>
+
+<h3>初始容量 (cap) 如何确定</h3>
+<p>不同的创建方式，Vec 拿到的初始 cap 完全不同。这直接决定了第一次 push 是否触发堆分配：</p>
+
+<div class="memory-scene">
+  <div class="flex-row">
+    <!-- Vec::new() -->
+    <div class="flex-col">
+      <div class="zone-stack">
+        <div class="zone-label">Vec::new() — 零分配</div>
+        <div class="stack-frame">
+          <div class="frame-title">cap = 0, len = 0</div>
+          <div class="stack-row">
+            <div class="stack-cell field">ptr</div>
+            <div class="stack-cell value" style="color:#f85149">0x1 (dangling)</div>
+          </div>
+          <div class="stack-row">
+            <div class="stack-cell field">cap</div>
+            <div class="stack-cell value">0</div>
+          </div>
+          <div class="stack-row">
+            <div class="stack-cell field">len</div>
+            <div class="stack-cell value">0</div>
+          </div>
+        </div>
+        <p class="note" style="max-width:220px">不分配堆内存！ptr 是 align_of::&lt;T&gt;() 对齐的悬垂地址 (通常为 0x1 或 0x4)。第一次 push 才 alloc。</p>
+      </div>
+    </div>
+
+    <!-- vec![...] -->
+    <div class="flex-col">
+      <div class="zone-heap">
+        <div class="zone-label">vec![10, 20, 30] — 精确分配</div>
+        <div class="heap-block">
+          <div class="heap-title">cap = 3 (元素个数)</div>
+          <div class="heap-slots">
+            <div class="heap-slot used"><span class="idx">[0]</span>10</div>
+            <div class="heap-slot used"><span class="idx">[1]</span>20</div>
+            <div class="heap-slot used"><span class="idx">[2]</span>30</div>
+          </div>
+        </div>
+        <p class="note" style="max-width:220px">宏展开为 with_capacity(3) + 3 次 push。cap == len，下一次 push 立即扩容到 6。</p>
+      </div>
+    </div>
+
+    <!-- with_capacity -->
+    <div class="flex-col">
+      <div class="zone-heap">
+        <div class="zone-label">Vec::with_capacity(8) — 预分配</div>
+        <div class="heap-block">
+          <div class="heap-title">cap = 8, len = 0</div>
+          <div class="heap-slots">
+            <div class="heap-slot free"><span class="idx">[0]</span>—</div>
+            <div class="heap-slot free"><span class="idx">[1]</span>—</div>
+            <div class="heap-slot free"><span class="idx">[2]</span>—</div>
+            <div class="heap-slot free"><span class="idx">[3]</span>—</div>
+            <div class="heap-slot free"><span class="idx">[4]</span>—</div>
+            <div class="heap-slot free"><span class="idx">[5]</span>—</div>
+            <div class="heap-slot free"><span class="idx">[6]</span>—</div>
+            <div class="heap-slot free"><span class="idx">[7]</span>—</div>
+          </div>
+        </div>
+        <p class="note" style="max-width:220px">一次 alloc(32B)，前 8 次 push 均 O(1) 无 realloc。适合已知大致大小的场景。</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<pre class="code-block"><code><span class="cm">// ─── 各初始化方式的 cap 来源 ───</span>
+
+<span class="cm">// 1. Vec::new() → cap = 0, 不 alloc</span>
+<span class="kw">let</span> v: <span class="ty">Vec</span>&lt;<span class="ty">i32</span>&gt; = <span class="ty">Vec</span>::<span class="fn">new</span>(); <span class="cm">// ptr=dangling, cap=0, len=0</span>
+
+<span class="cm">// 2. vec![a, b, c] → cap = 元素个数 (编译期已知)</span>
+<span class="kw">let</span> v = <span class="mac">vec!</span>[<span class="num">10</span>, <span class="num">20</span>, <span class="num">30</span>]; <span class="cm">// cap=3, len=3</span>
+
+<span class="cm">// 3. vec![0; n] → cap = n</span>
+<span class="kw">let</span> v = <span class="mac">vec!</span>[<span class="num">0</span>; <span class="num">1024</span>]; <span class="cm">// cap=1024, len=1024, 一次 alloc(4096B)</span>
+
+<span class="cm">// 4. Vec::with_capacity(n) → cap = n</span>
+<span class="kw">let</span> v: <span class="ty">Vec</span>&lt;<span class="ty">i32</span>&gt; = <span class="ty">Vec</span>::<span class="fn">with_capacity</span>(<span class="num">8</span>); <span class="cm">// cap=8, len=0, alloc(32B)</span>
+
+<span class="cm">// 5. iter.collect() → cap = size_hint().0 (下界)</span>
+<span class="kw">let</span> v: <span class="ty">Vec</span>&lt;_&gt; = (<span class="num">0</span>..<span class="num">100</span>).<span class="fn">collect</span>();
+<span class="cm">// Range 的 size_hint = (100, Some(100))</span>
+<span class="cm">// → with_capacity(100), 一次搞定</span>
+
+<span class="kw">let</span> v: <span class="ty">Vec</span>&lt;_&gt; = some_iter
+    .<span class="fn">filter</span>(|x| x &gt; &amp;<span class="num">5</span>)
+    .<span class="fn">collect</span>();
+<span class="cm">// Filter 的 size_hint = (0, upper)</span>
+<span class="cm">// → 下界=0, 从 cap=0 开始逐步扩容!</span></code></pre>
+
+<h3>collect() 的 size_hint 机制</h3>
+<div class="memory-scene">
+  <div class="steps">
+    <div class="step"><div class="step-num">1</div><div class="step-text"><code>collect()</code> 内部调用 <code>iter.size_hint()</code> 获取 <code>(lower: usize, upper: Option&lt;usize&gt;)</code></div></div>
+    <div class="step"><div class="step-num">2</div><div class="step-text">用 <code>lower</code> 作为初始 cap 调用 <code>Vec::with_capacity(lower)</code></div></div>
+    <div class="step"><div class="step-num">3</div><div class="step-text">若 <code>upper == Some(n)</code> 且 <code>n == lower</code>（精确长度，如 Range、slice::iter），一次分配到位</div></div>
+    <div class="step"><div class="step-num">4</div><div class="step-text">若 <code>lower = 0</code>（如 filter、flat_map），退化为从 cap=0 开始，每次 push 触发倍增扩容</div></div>
+    <div class="step"><div class="step-num">5</div><div class="step-text">若 upper 存在但 &gt; lower，仍只分配 lower（保守策略，避免浪费）</div></div>
+  </div>
+</div>
+
+<table class="compare-table">
+  <tr><th>初始化方式</th><th>初始 cap</th><th>首次 push 是否 alloc</th><th>适用场景</th></tr>
+  <tr><td><code>Vec::new()</code></td><td>0</td><td>是 (cap 0→1)</td><td>不确定大小，延迟分配</td></tr>
+  <tr><td><code>vec![a, b, c]</code></td><td>元素个数</td><td>是 (cap==len 时)</td><td>编译期已知少量元素</td></tr>
+  <tr><td><code>vec![0; n]</code></td><td>n</td><td>—（已满）</td><td>需要 n 个相同初始值</td></tr>
+  <tr><td><code>with_capacity(n)</code></td><td>n</td><td>否 (前 n 次)</td><td>预知大致大小，减少 realloc</td></tr>
+  <tr><td><code>collect()</code> (精确迭代器)</td><td>exact len</td><td>否</td><td>Range、slice 等</td></tr>
+  <tr><td><code>collect()</code> (filter 等)</td><td>0</td><td>是</td><td>无法预知输出长度</td></tr>
+</table>
+
+<p class="note">💡 性能建议: 如果你知道大致元素数量（比如从文件读 10000 行），用 <code>Vec::with_capacity(10000)</code> 可避免约 14 次 realloc（log₂(10000) ≈ 13.3）。每次 realloc 都是一次 memcpy + alloc + dealloc。</p>
+
+<h3>扩容增长曲线</h3>
+<div class="memory-scene">
+  <p style="font-size:0.8rem; color:#8b949e; margin-bottom:12px;">从 Vec::new() 开始连续 push，cap 的变化轨迹：</p>
+  <div class="zone-heap">
+    <div class="heap-block">
+      <div class="heap-title">cap 增长: 0 → 1 → 2 → 4 → 8 → 16 → 32 → 64 …</div>
+      <div class="heap-slots">
+        <div class="heap-slot free" style="min-width:36px"><span class="idx">push#1</span>1</div>
+        <div class="heap-slot free" style="min-width:36px"><span class="idx">push#2</span>2</div>
+        <div class="heap-slot used" style="min-width:36px"><span class="idx">push#3</span>4</div>
+        <div class="heap-slot used" style="min-width:36px"><span class="idx">push#5</span>8</div>
+        <div class="heap-slot used" style="min-width:36px"><span class="idx">push#9</span>16</div>
+        <div class="heap-slot used" style="min-width:36px"><span class="idx">push#17</span>32</div>
+        <div class="heap-slot used" style="min-width:36px"><span class="idx">push#33</span>64</div>
+      </div>
+    </div>
+    <div class="cap-annotation">数字 = 该次 push 后的新 cap · 触发扩容的 push 编号标注在上方</div>
+  </div>
+  <pre class="code-block"><code><span class="cm">// 标准库源码 (alloc/src/raw_vec.rs, 简化):</span>
+<span class="kw">fn</span> <span class="fn">grow_amortized</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, len: <span class="ty">usize</span>, additional: <span class="ty">usize</span>) {
+    <span class="cm">// 新容量 = max(cap * 2, len + additional, 1)</span>
+    <span class="kw">let</span> new_cap = <span class="kw">if</span> <span class="kw">self</span>.cap == <span class="num">0</span> {
+        <span class="fn">max</span>(<span class="num">1</span>, len + additional)       <span class="cm">// 首次: 至少 1</span>
+    } <span class="kw">else</span> {
+        <span class="fn">max</span>(<span class="kw">self</span>.cap * <span class="num">2</span>, len + additional) <span class="cm">// 倍增，但不低于所需</span>
+    };
+    <span class="cm">// 然后 realloc 到 new_cap * size_of::&lt;T&gt;() 字节</span>
+}
+<span class="cm">// 注意: 对于 T 为 ZST (如 Vec&lt;()&gt;)，永远不 alloc，cap = usize::MAX</span></code></pre>
+</div>
+
+<hr>
+
+<!-- ═══════════════════════════════════════════ -->
+<h2>三、增 (Push / Insert)</h2>
+
+<h3>3.1 push — 尾部追加</h3>
+<p>当 <code>len &lt; cap</code> 时，直接写入 <code>ptr[len]</code>，然后 <code>len += 1</code>。无需重新分配。</p>
+
+<div class="memory-scene">
+  <p style="color:#7ee787; font-size:0.8rem; margin-bottom:8px;">v.push(40) — len=3, cap=4, 有空位，直接写</p>
+  <div class="zone-heap">
+    <div class="heap-block">
+      <div class="heap-title">push 前: len=3, cap=4</div>
+      <div class="heap-slots">
+        <div class="heap-slot used"><span class="idx">[0]</span>10</div>
+        <div class="heap-slot used"><span class="idx">[1]</span>20</div>
+        <div class="heap-slot used"><span class="idx">[2]</span>30</div>
+        <div class="heap-slot free"><span class="idx">[3]</span>—</div>
+      </div>
+    </div>
+    <div class="arrow" style="margin:8px 0;">push(40)</div>
+    <div class="heap-block">
+      <div class="heap-title">push 后: len=4, cap=4</div>
+      <div class="heap-slots">
+        <div class="heap-slot used"><span class="idx">[0]</span>10</div>
+        <div class="heap-slot used"><span class="idx">[1]</span>20</div>
+        <div class="heap-slot used"><span class="idx">[2]</span>30</div>
+        <div class="heap-slot highlight-new"><span class="idx">[3]</span>40</div>
+      </div>
+    </div>
+  </div>
+  <div class="steps">
+    <div class="step"><div class="step-num">1</div><div class="step-text">检查 <code>len &lt; cap</code> → 3 &lt; 4 ✓ 无需扩容</div></div>
+    <div class="step"><div class="step-num">2</div><div class="step-text"><code>ptr::write(ptr.add(3), 40)</code> — 在偏移 3 处写入（不触发 Drop）</div></div>
+    <div class="step"><div class="step-num">3</div><div class="step-text"><code>self.len += 1</code> → len = 4</div></div>
+  </div>
+</div>
+
+<h3>3.2 push 触发扩容 (realloc)</h3>
+<p>当 <code>len == cap</code> 时，必须扩容。策略：新容量 = <code>cap * 2</code>（至少为 1）。</p>
+
+<div class="memory-scene">
+  <p style="color:#f85149; font-size:0.8rem; margin-bottom:8px;">v.push(50) — len=4, cap=4, 满了！触发 realloc</p>
+  <div class="zone-heap">
+    <div class="flex-row">
+      <div class="flex-col">
+        <div class="heap-block">
+          <div class="heap-title">旧堆块 0x7f3a_0040 (cap=4)</div>
+          <div class="heap-slots">
+            <div class="heap-slot used"><span class="idx">[0]</span>10</div>
+            <div class="heap-slot used"><span class="idx">[1]</span>20</div>
+            <div class="heap-slot used"><span class="idx">[2]</span>30</div>
+            <div class="heap-slot used"><span class="idx">[3]</span>40</div>
+          </div>
+        </div>
+        <div class="cap-annotation">即将被 dealloc 释放</div>
+      </div>
+      <div style="align-self:center; color:#58a6ff; font-size:1.2rem;">──▶</div>
+      <div class="flex-col">
+        <div class="heap-block">
+          <div class="heap-title">新堆块 0x7f3a_0080 (cap=8)</div>
+          <div class="heap-slots">
+            <div class="heap-slot used"><span class="idx">[0]</span>10</div>
+            <div class="heap-slot used"><span class="idx">[1]</span>20</div>
+            <div class="heap-slot used"><span class="idx">[2]</span>30</div>
+            <div class="heap-slot used"><span class="idx">[3]</span>40</div>
+            <div class="heap-slot highlight-new"><span class="idx">[4]</span>50</div>
+            <div class="heap-slot free"><span class="idx">[5]</span>—</div>
+            <div class="heap-slot free"><span class="idx">[6]</span>—</div>
+            <div class="heap-slot free"><span class="idx">[7]</span>—</div>
+          </div>
+        </div>
+        <div class="cap-annotation">memcpy 旧数据 + 写入新元素</div>
+      </div>
+    </div>
+  </div>
+  <div class="steps">
+    <div class="step"><div class="step-num">1</div><div class="step-text">检查 <code>len == cap</code> → 4 == 4 → 需要扩容</div></div>
+    <div class="step"><div class="step-num">2</div><div class="step-text">计算新容量: <code>new_cap = cap * 2 = 8</code></div></div>
+    <div class="step"><div class="step-num">3</div><div class="step-text"><code>alloc::realloc(old_ptr, old_layout, new_size=32B)</code> — 底层可能 mmap 新区域</div></div>
+    <div class="step"><div class="step-num">4</div><div class="step-text"><code>memcpy(new_ptr, old_ptr, len * size_of::&lt;i32&gt;())</code> — 拷贝 16 字节旧数据</div></div>
+    <div class="step"><div class="step-num">5</div><div class="step-text"><code>dealloc(old_ptr)</code> — 释放旧堆块（realloc 内部完成）</div></div>
+    <div class="step"><div class="step-num">6</div><div class="step-text">更新栈上 <code>ptr = new_ptr, cap = 8</code></div></div>
+    <div class="step"><div class="step-num">7</div><div class="step-text"><code>ptr::write(new_ptr.add(4), 50); self.len = 5</code></div></div>
+  </div>
+  <p class="note">⚠️ 扩容后所有旧引用/迭代器失效 — 这就是为什么 push 需要 &amp;mut self。</p>
+</div>
+
+<h3>3.3 insert — 中间插入</h3>
+<p><code>v.insert(1, 99)</code>：在索引 1 处插入，后续元素整体后移。</p>
+
+<div class="memory-scene">
+  <div class="zone-heap">
+    <div class="heap-block">
+      <div class="heap-title">insert 前: [10, 20, 30, 40, 50] len=5</div>
+      <div class="heap-slots">
+        <div class="heap-slot used"><span class="idx">[0]</span>10</div>
+        <div class="heap-slot used"><span class="idx">[1]</span>20</div>
+        <div class="heap-slot used"><span class="idx">[2]</span>30</div>
+        <div class="heap-slot used"><span class="idx">[3]</span>40</div>
+        <div class="heap-slot used"><span class="idx">[4]</span>50</div>
+      </div>
+    </div>
+    <div class="arrow" style="margin:8px 0;">v.insert(1, 99) → memmove 后移 [1..5] 到 [2..6]</div>
+    <div class="heap-block">
+      <div class="heap-title">insert 后: [10, 99, 20, 30, 40, 50] len=6</div>
+      <div class="heap-slots">
+        <div class="heap-slot used"><span class="idx">[0]</span>10</div>
+        <div class="heap-slot highlight-new"><span class="idx">[1]</span>99</div>
+        <div class="heap-slot highlight-move"><span class="idx">[2]</span>20</div>
+        <div class="heap-slot highlight-move"><span class="idx">[3]</span>30</div>
+        <div class="heap-slot highlight-move"><span class="idx">[4]</span>40</div>
+        <div class="heap-slot highlight-move"><span class="idx">[5]</span>50</div>
+      </div>
+    </div>
+  </div>
+  <div class="steps">
+    <div class="step"><div class="step-num">1</div><div class="step-text">边界检查 <code>assert!(idx &lt;= len)</code></div></div>
+    <div class="step"><div class="step-num">2</div><div class="step-text">若 <code>len == cap</code> 先扩容（同 push 逻辑）</div></div>
+    <div class="step"><div class="step-num">3</div><div class="step-text"><code>ptr::copy(ptr.add(1), ptr.add(2), len - 1)</code> — 即 <strong>memmove</strong>，将 [1..5] 后移一位</div></div>
+    <div class="step"><div class="step-num">4</div><div class="step-text"><code>ptr::write(ptr.add(1), 99)</code> — 在空出的位置写入</div></div>
+    <div class="step"><div class="step-num">5</div><div class="step-text"><code>self.len += 1</code></div></div>
+  </div>
+  <p class="note">时间复杂度 O(n)：最坏情况需要移动所有后续元素。用 memmove 而非逐元素拷贝，因为 memmove 处理重叠区域且由 libc 高度优化（SIMD）。</p>
+</div>
+
+<hr>
+
+<!-- ═══════════════════════════════════════════ -->
+<h2>四、删 (Pop / Remove / Truncate / Clear)</h2>
+
+<h3>4.1 pop — 尾部弹出</h3>
+
+<div class="memory-scene">
+  <div class="zone-heap">
+    <div class="heap-block">
+      <div class="heap-title">pop 前: len=5</div>
+      <div class="heap-slots">
+        <div class="heap-slot used"><span class="idx">[0]</span>10</div>
+        <div class="heap-slot used"><span class="idx">[1]</span>99</div>
+        <div class="heap-slot used"><span class="idx">[2]</span>20</div>
+        <div class="heap-slot used"><span class="idx">[3]</span>30</div>
+        <div class="heap-slot highlight-del"><span class="idx">[4]</span>50</div>
+      </div>
+    </div>
+    <div class="arrow" style="margin:8px 0;">v.pop() → Some(50)</div>
+    <div class="heap-block">
+      <div class="heap-title">pop 后: len=4 (cap 不变!)</div>
+      <div class="heap-slots">
+        <div class="heap-slot used"><span class="idx">[0]</span>10</div>
+        <div class="heap-slot used"><span class="idx">[1]</span>99</div>
+        <div class="heap-slot used"><span class="idx">[2]</span>20</div>
+        <div class="heap-slot used"><span class="idx">[3]</span>30</div>
+        <div class="heap-slot free"><span class="idx">[4]</span>—</div>
+      </div>
+    </div>
+  </div>
+  <div class="steps">
+    <div class="step"><div class="step-num">1</div><div class="step-text">若 <code>len == 0</code> 返回 <code>None</code></div></div>
+    <div class="step"><div class="step-num">2</div><div class="step-text"><code>self.len -= 1</code></div></div>
+    <div class="step"><div class="step-num">3</div><div class="step-text"><code>unsafe { ptr::read(ptr.add(len)) }</code> — 读出元素并返回 <code>Some(val)</code></div></div>
+  </div>
+  <p class="note">注意: pop 不会缩小 cap！堆内存不释放。如需释放用 shrink_to_fit()。</p>
+</div>
+
+<h3>4.2 remove — 中间删除</h3>
+<p><code>v.remove(1)</code>：删除索引 1 的元素，后续元素前移。</p>
+
+<div class="memory-scene">
+  <div class="zone-heap">
+    <div class="heap-block">
+      <div class="heap-title">remove 前: [10, 99, 20, 30] len=4</div>
+      <div class="heap-slots">
+        <div class="heap-slot used"><span class="idx">[0]</span>10</div>
+        <div class="heap-slot highlight-del"><span class="idx">[1]</span>99</div>
+        <div class="heap-slot used"><span class="idx">[2]</span>20</div>
+        <div class="heap-slot used"><span class="idx">[3]</span>30</div>
+      </div>
+    </div>
+    <div class="arrow" style="margin:8px 0;">v.remove(1) → 99, memmove [2..4] 到 [1..3]</div>
+    <div class="heap-block">
+      <div class="heap-title">remove 后: [10, 20, 30] len=3</div>
+      <div class="heap-slots">
+        <div class="heap-slot used"><span class="idx">[0]</span>10</div>
+        <div class="heap-slot highlight-move"><span class="idx">[1]</span>20</div>
+        <div class="heap-slot highlight-move"><span class="idx">[2]</span>30</div>
+        <div class="heap-slot free"><span class="idx">[3]</span>—</div>
+      </div>
+    </div>
+  </div>
+  <div class="steps">
+    <div class="step"><div class="step-num">1</div><div class="step-text">边界检查 <code>assert!(idx &lt; len)</code></div></div>
+    <div class="step"><div class="step-num">2</div><div class="step-text"><code>let val = ptr::read(ptr.add(1))</code> — 读出被删元素 (99)</div></div>
+    <div class="step"><div class="step-num">3</div><div class="step-text"><code>ptr::copy(ptr.add(2), ptr.add(1), len - idx - 1)</code> — memmove 前移</div></div>
+    <div class="step"><div class="step-num">4</div><div class="step-text"><code>self.len -= 1</code></div></div>
+    <div class="step"><div class="step-num">5</div><div class="step-text">返回被删元素 <code>val</code>（所有权转移给调用者）</div></div>
+  </div>
+</div>
+
+<h3>4.3 swap_remove — O(1) 删除</h3>
+<p>不保持顺序，用最后一个元素覆盖被删位置。</p>
+
+<div class="memory-scene">
+  <div class="zone-heap">
+    <div class="heap-block">
+      <div class="heap-title">swap_remove 前: [10, 20, 30, 40, 50] len=5</div>
+      <div class="heap-slots">
+        <div class="heap-slot used"><span class="idx">[0]</span>10</div>
+        <div class="heap-slot highlight-del"><span class="idx">[1]</span>20</div>
+        <div class="heap-slot used"><span class="idx">[2]</span>30</div>
+        <div class="heap-slot used"><span class="idx">[3]</span>40</div>
+        <div class="heap-slot highlight-move"><span class="idx">[4]</span>50</div>
+      </div>
+    </div>
+    <div class="arrow" style="margin:8px 0;">v.swap_remove(1) → 20, 把 [4] 的 50 写到 [1]</div>
+    <div class="heap-block">
+      <div class="heap-title">swap_remove 后: [10, 50, 30, 40] len=4</div>
+      <div class="heap-slots">
+        <div class="heap-slot used"><span class="idx">[0]</span>10</div>
+        <div class="heap-slot highlight-new"><span class="idx">[1]</span>50</div>
+        <div class="heap-slot used"><span class="idx">[2]</span>30</div>
+        <div class="heap-slot used"><span class="idx">[3]</span>40</div>
+        <div class="heap-slot free"><span class="idx">[4]</span>—</div>
+      </div>
+    </div>
+  </div>
+  <div class="steps">
+    <div class="step"><div class="step-num">1</div><div class="step-text"><code>let val = ptr::read(ptr.add(1))</code> — 读出 20</div></div>
+    <div class="step"><div class="step-num">2</div><div class="step-text"><code>self.len -= 1</code> → len = 4</div></div>
+    <div class="step"><div class="step-num">3</div><div class="step-text"><code>ptr::copy(ptr.add(4), ptr.add(1), 1)</code> — 把末尾元素拷到空洞</div></div>
+    <div class="step"><div class="step-num">4</div><div class="step-text">返回 20。无需 memmove 整段，O(1)！</div></div>
+  </div>
+</div>
+
+<h3>4.4 truncate / clear</h3>
+<div class="memory-scene">
+  <div class="steps">
+    <div class="step"><div class="step-num">T</div><div class="step-text"><code>truncate(n)</code>: 对 <code>[n..len)</code> 中每个元素调用 <code>ptr::drop_in_place</code>，然后 <code>len = n</code>。cap 不变。</div></div>
+    <div class="step"><div class="step-num">C</div><div class="step-text"><code>clear()</code> = <code>truncate(0)</code>：Drop 所有元素，len 归零，堆内存仍保留。</div></div>
+  </div>
+  <p class="note">对 i32 等 Copy 类型，drop_in_place 是 no-op，编译器会优化掉整个循环。</p>
+</div>
+
+<hr>
+
+<!-- ═══════════════════════════════════════════ -->
+<h2>五、改 (Index / 原地修改)</h2>
+
+<h3>5.1 索引访问 — 零开销</h3>
+<pre class="code-block"><code><span class="kw">let</span> x = v[<span class="num">2</span>];       <span class="cm">// Copy 类型: 直接 memcpy 4 字节到栈</span>
+v[<span class="num">2</span>] = <span class="num">99</span>;         <span class="cm">// 直接 ptr::write(ptr.add(2), 99)</span>
+<span class="kw">let</span> r = &amp;<span class="kw">mut</span> v[<span class="num">2</span>]; <span class="cm">// 返回 &amp;mut i32 指向堆上偏移 8B 处</span></code></pre>
+
+<div class="memory-scene">
+  <p style="font-size:0.8rem; color:#8b949e; margin-bottom:8px;">v[2] = 99 的内存视角:</p>
+  <div class="zone-heap">
+    <div class="heap-block">
+      <div class="heap-title">直接写入，无移动</div>
+      <div class="heap-slots">
+        <div class="heap-slot used"><span class="idx">[0]</span>10</div>
+        <div class="heap-slot used"><span class="idx">[1]</span>20</div>
+        <div class="heap-slot highlight-new"><span class="idx">[2]</span>99</div>
+        <div class="heap-slot used"><span class="idx">[3]</span>40</div>
+      </div>
+    </div>
+  </div>
+  <div class="steps">
+    <div class="step"><div class="step-num">1</div><div class="step-text">边界检查: <code>assert!(2 &lt; len)</code>（panic 路径，正常执行时分支预测命中）</div></div>
+    <div class="step"><div class="step-num">2</div><div class="step-text">计算地址: <code>ptr.add(2)</code> = ptr + 2×4 = ptr + 8</div></div>
+    <div class="step"><div class="step-num">3</div><div class="step-text">写入: 一条 <code>mov [rax+8], 99</code> 指令（x86-64）</div></div>
+  </div>
+</div>
+
+<h3>5.2 对非 Copy 类型的修改</h3>
+<pre class="code-block"><code><span class="kw">let mut</span> v: <span class="ty">Vec</span>&lt;<span class="ty">String</span>&gt; = <span class="mac">vec!</span>[<span class="str">"hello"</span>.<span class="fn">into</span>()];
+v[<span class="num">0</span>] = <span class="str">"world"</span>.<span class="fn">into</span>();
+
+<span class="cm">// 1. 先 Drop 旧 String (释放旧堆内存 "hello")</span>
+<span class="cm">// 2. 再 ptr::write 新 String 的 (ptr, cap, len) 到 slot[0]</span>
+<span class="cm">// 注意: Vec 的堆块本身不变，变的是 slot 里存的 String 指针</span></code></pre>
+
+<hr>
+
+<!-- ═══════════════════════════════════════════ -->
+<h2>六、内存生命周期: Drop</h2>
+
+<pre class="code-block"><code><span class="cm">// 当 Vec 离开作用域:</span>
+<span class="kw">impl</span>&lt;<span class="ty">T</span>&gt; <span class="ty">Drop</span> <span class="kw">for</span> <span class="ty">Vec</span>&lt;<span class="ty">T</span>&gt; {
+    <span class="kw">fn</span> <span class="fn">drop</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) {
+        <span class="cm">// 1. drop_in_place 每个元素 [0..len)</span>
+        <span class="cm">//    对 String: 释放每个 String 自己的堆内存</span>
+        <span class="cm">//    对 i32: no-op</span>
+        <span class="cm">// 2. dealloc(self.ptr, layout(cap * size_of::&lt;T&gt;()))</span>
+        <span class="cm">//    释放 Vec 自己的堆块</span>
+    }
+}</code></pre>
+
+<div class="memory-scene">
+  <p style="font-size:0.8rem; color:#f85149; margin-bottom:12px;">Vec&lt;String&gt; drop 时的释放顺序:</p>
+  <div class="flex-row">
+    <div class="zone-stack">
+      <div class="zone-label">① 栈上 Vec 结构 (24B) — 随栈帧回收</div>
+      <div class="stack-frame">
+        <div class="frame-title">即将失效</div>
+        <div class="stack-row">
+          <div class="stack-cell field">ptr</div>
+          <div class="stack-cell value" style="text-decoration:line-through;color:#f85149">0x7f..040</div>
+        </div>
+      </div>
+    </div>
+    <div class="zone-heap">
+      <div class="zone-label">② Vec 的堆块 — dealloc 释放</div>
+      <div class="heap-block" style="border-color:#f85149;">
+        <div class="heap-title" style="background:#3a1a1a;color:#f85149;">dealloc</div>
+        <div class="heap-slots">
+          <div class="heap-slot highlight-del">S₀</div>
+          <div class="heap-slot highlight-del">S₁</div>
+          <div class="heap-slot highlight-del">S₂</div>
+        </div>
+      </div>
+    </div>
+    <div class="zone-heap">
+      <div class="zone-label">③ 每个 String 的堆数据 — drop_in_place 逐个释放</div>
+      <div class="heap-block" style="border-color:#f85149;">
+        <div class="heap-title" style="background:#3a1a1a;color:#f85149;">"hello" dealloc</div>
+        <div class="heap-slots">
+          <div class="heap-slot highlight-del">h</div>
+          <div class="heap-slot highlight-del">e</div>
+          <div class="heap-slot highlight-del">l</div>
+          <div class="heap-slot highlight-del">l</div>
+          <div class="heap-slot highlight-del">o</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<hr>
+
+<!-- ═══════════════════════════════════════════ -->
+<h2>七、操作复杂度速查</h2>
+
+<table class="compare-table">
+  <tr>
+    <th>操作</th>
+    <th>时间复杂度</th>
+    <th>是否可能 realloc</th>
+    <th>底层关键调用</th>
+  </tr>
+  <tr>
+    <td><code>push</code> (有空位)</td>
+    <td>O(1)</td>
+    <td>否</td>
+    <td><code>ptr::write</code></td>
+  </tr>
+  <tr>
+    <td><code>push</code> (扩容)</td>
+    <td>O(n) 均摊 O(1)</td>
+    <td>是 (×2)</td>
+    <td><code>realloc + memcpy</code></td>
+  </tr>
+  <tr>
+    <td><code>pop</code></td>
+    <td>O(1)</td>
+    <td>否</td>
+    <td><code>ptr::read</code></td>
+  </tr>
+  <tr>
+    <td><code>insert(i, x)</code></td>
+    <td>O(n)</td>
+    <td>可能</td>
+    <td><code>memmove + ptr::write</code></td>
+  </tr>
+  <tr>
+    <td><code>remove(i)</code></td>
+    <td>O(n)</td>
+    <td>否</td>
+    <td><code>ptr::read + memmove</code></td>
+  </tr>
+  <tr>
+    <td><code>swap_remove(i)</code></td>
+    <td>O(1)</td>
+    <td>否</td>
+    <td><code>ptr::read + ptr::copy(1)</code></td>
+  </tr>
+  <tr>
+    <td><code>v[i]</code> 读/写</td>
+    <td>O(1)</td>
+    <td>否</td>
+    <td>直接偏移寻址</td>
+  </tr>
+  <tr>
+    <td><code>truncate / clear</code></td>
+    <td>O(n)</td>
+    <td>否</td>
+    <td><code>drop_in_place × n</code></td>
+  </tr>
+  <tr>
+    <td><code>shrink_to_fit</code></td>
+    <td>O(n)</td>
+    <td>是 (缩小)</td>
+    <td><code>realloc + memcpy</code></td>
+  </tr>
+</table>
+
+<hr>
+
+<!-- ═══════════════════════════════════════════ -->
+<h2>八、与 C++ std::vector 的对比</h2>
+
+<table class="compare-table">
+  <tr><th>维度</th><th>Rust Vec&lt;T&gt;</th><th>C++ std::vector&lt;T&gt;</th></tr>
+  <tr><td>栈上大小</td><td>24 B (ptr+cap+len)</td><td>通常 24 B (begin+end+cap_end)</td></tr>
+  <tr><td>扩容策略</td><td>×2</td><td>通常 ×2 (libstdc++) 或 ×1.5 (libc++/MSVC)</td></tr>
+  <tr><td>越界访问</td><td>panic (可 catch)</td><td>UB (未定义行为)</td></tr>
+  <tr><td>迭代时修改</td><td>编译期拒绝 (borrow checker)</td><td>UB (迭代器失效)</td></tr>
+  <tr><td>移动语义</td><td>默认 move, 旧变量不可用</td><td>需 std::move, 旧变量仍可用</td></tr>
+</table>
+
+<hr>
+
+<p style="color:#6e7681; font-size:0.75rem; text-align:center; margin-top:40px;">
+  Generated for Rust learning · 源码参考: rust/library/alloc/src/vec/mod.rs · 2026-07-28
+</p>
+
+</div>
+</body>
+</html>
