@@ -1,0 +1,979 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rust 所有权移动后 · 栈/堆内存变化图解</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --surface-strong: #21262d;
+  --border: #30363d;
+  --text: #c9d1d9;
+  --muted: #8b949e;
+  --faint: #6e7681;
+  --blue: #58a6ff;
+  --blue-soft: #0d1f3c;
+  --green: #7ee787;
+  --green-soft: #112b1c;
+  --orange: #f0883e;
+  --orange-soft: #2d1b0d;
+  --purple: #d2a8ff;
+  --purple-soft: #241535;
+  --red: #f85149;
+  --red-soft: #351719;
+  --yellow: #e3b341;
+  --yellow-soft: #2b2512;
+  --cyan: #39d2c0;
+  --cyan-soft: #0a2e2a;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  padding: 40px 20px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "SF Mono", "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+  line-height: 1.7;
+}
+.container { width: min(1100px, 100%); margin: 0 auto; }
+h1 {
+  margin: 0 0 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--surface-strong);
+  color: var(--blue);
+  font-size: 1.7rem;
+  font-weight: 700;
+}
+.subtitle { margin: 0 0 36px; color: var(--muted); font-size: 0.88rem; }
+h2 {
+  margin: 52px 0 18px;
+  padding-left: 12px;
+  border-left: 3px solid var(--orange);
+  color: var(--orange);
+  font-size: 1.25rem;
+}
+h3 { margin: 28px 0 10px; color: #79c0ff; font-size: 1rem; }
+p { margin: 10px 0; }
+strong { color: #f0f6fc; }
+code {
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-strong);
+  color: #79c0ff;
+  font-family: inherit;
+  font-size: 0.88em;
+}
+hr { margin: 48px 0; border: 0; border-top: 1px solid var(--surface-strong); }
+.note { margin: 7px 0; color: var(--muted); font-size: 0.82rem; }
+.warning { color: #ffa198; }
+.danger { color: var(--red); font-weight: 600; }
+
+/* 代码块 */
+.code-block {
+  margin: 16px 0;
+  padding: 16px 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow-x: auto;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  white-space: pre;
+}
+.code-block .highlight {
+  background: var(--yellow-soft);
+  border-radius: 3px;
+  padding: 0 2px;
+}
+.code-block .comment { color: var(--faint); }
+.code-block .kw { color: var(--purple); }
+.code-block .fn { color: var(--blue); }
+.code-block .str { color: var(--green); }
+.code-block .num { color: var(--orange); }
+
+/* 内存图容器 */
+.mem-diagram {
+  margin: 20px 0;
+  padding: 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  position: relative;
+  overflow-x: auto;
+}
+.mem-diagram .step-badge {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  padding: 2px 10px;
+  border-radius: 12px;
+  background: var(--blue-soft);
+  border: 1px solid var(--blue);
+  color: var(--blue);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+/* 区域标签 */
+.region-label {
+  display: inline-block;
+  margin-bottom: 10px;
+  padding: 2px 10px;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+.region-label.stack { background: var(--blue-soft); color: var(--blue); border: 1px solid var(--blue); }
+.region-label.heap { background: var(--green-soft); color: var(--green); border: 1px solid var(--green); }
+.region-label.freed { background: var(--red-soft); color: var(--red); border: 1px solid var(--red); }
+
+/* 内存行 */
+.mem-row {
+  display: flex;
+  align-items: stretch;
+  margin: 4px 0;
+  min-height: 36px;
+}
+.mem-cell {
+  display: flex;
+  align-items: center;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  font-size: 0.8rem;
+  white-space: nowrap;
+  position: relative;
+}
+.mem-cell:first-child { border-radius: 6px 0 0 6px; }
+.mem-cell:last-child { border-radius: 0 6px 6px 0; }
+.mem-cell + .mem-cell { border-left: none; }
+
+.mem-cell.addr {
+  background: var(--surface-strong);
+  color: var(--faint);
+  min-width: 110px;
+  font-size: 0.75rem;
+}
+.mem-cell.field {
+  background: var(--surface);
+  min-width: 130px;
+}
+.mem-cell.value {
+  background: var(--surface-strong);
+  min-width: 140px;
+  color: var(--yellow);
+}
+.mem-cell.ptr-val { color: var(--cyan); }
+.mem-cell.num-val { color: var(--orange); }
+.mem-cell.str-val { color: var(--green); }
+
+/* 变量名标签 */
+.var-tag {
+  display: inline-block;
+  margin: 12px 0 6px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.var-tag.person { background: var(--purple-soft); color: var(--purple); border: 1px solid var(--purple); }
+.var-tag.person2 { background: var(--cyan-soft); color: var(--cyan); border: 1px solid var(--cyan); }
+.var-tag.rawptr { background: var(--yellow-soft); color: var(--yellow); border: 1px solid var(--yellow); }
+.var-tag.old { background: var(--red-soft); color: var(--red); border: 1px solid var(--red); }
+
+/* 堆块 */
+.heap-block {
+  display: inline-flex;
+  align-items: center;
+  margin: 8px 16px 8px 0;
+  border: 2px solid var(--green);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.heap-block.freed-block {
+  border-color: var(--red);
+  opacity: 0.7;
+}
+.heap-block.freed-block .heap-content {
+  text-decoration: line-through;
+  color: var(--red);
+}
+.heap-block .heap-addr {
+  padding: 6px 10px;
+  background: var(--green-soft);
+  color: var(--green);
+  font-size: 0.72rem;
+  border-right: 1px solid var(--green);
+}
+.heap-block.freed-block .heap-addr {
+  background: var(--red-soft);
+  color: var(--red);
+  border-right-color: var(--red);
+}
+.heap-block .heap-content {
+  padding: 6px 14px;
+  color: var(--green);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.heap-block .heap-meta {
+  padding: 6px 10px;
+  background: var(--surface-strong);
+  color: var(--faint);
+  font-size: 0.72rem;
+  border-left: 1px solid var(--border);
+}
+
+/* 箭头注释 */
+.arrow-note {
+  margin: 6px 0 6px 20px;
+  padding-left: 14px;
+  border-left: 2px solid var(--faint);
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.arrow-note.active { border-left-color: var(--cyan); color: var(--cyan); }
+.arrow-note.danger-note { border-left-color: var(--red); color: #ffa198; }
+.arrow-note.warn-note { border-left-color: var(--yellow); color: var(--yellow); }
+
+/* 两栏布局 */
+.two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  align-items: start;
+}
+@media (max-width: 800px) {
+  .two-col { grid-template-columns: 1fr; }
+}
+
+/* 分隔虚线 */
+.dashed-sep {
+  margin: 18px 0;
+  border: 0;
+  border-top: 1px dashed var(--border);
+}
+
+/* 关键洞察框 */
+.insight {
+  margin: 16px 0;
+  padding: 14px 18px;
+  border-radius: 8px;
+  border: 1px solid var(--yellow);
+  background: var(--yellow-soft);
+  font-size: 0.85rem;
+}
+.insight::before {
+  content: "💡 ";
+}
+.insight.red-insight {
+  border-color: var(--red);
+  background: var(--red-soft);
+}
+.insight.red-insight::before {
+  content: "⚠️ ";
+}
+
+/* 已释放标记 */
+.freed-x {
+  position: relative;
+  display: inline-block;
+}
+.freed-x::after {
+  content: "✕ 已释放";
+  position: absolute;
+  top: -8px;
+  right: -60px;
+  font-size: 0.68rem;
+  color: var(--red);
+  font-weight: 700;
+}
+
+/* 时间线导航 */
+.timeline {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  display: flex;
+  gap: 4px;
+  padding: 10px 16px;
+  margin: 0 -20px 30px;
+  background: rgba(13,17,23,0.92);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+.timeline a {
+  padding: 4px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+.timeline a:hover { border-color: var(--blue); color: var(--blue); }
+
+/* 栈帧外框 */
+.stack-frame {
+  border: 2px solid var(--blue);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin: 8px 0;
+  position: relative;
+}
+.stack-frame .frame-title {
+  position: absolute;
+  top: -10px;
+  left: 14px;
+  padding: 0 8px;
+  background: var(--surface);
+  color: var(--blue);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+/* moved 标记 */
+.moved-overlay {
+  position: relative;
+}
+.moved-overlay::after {
+  content: "MOVED (逻辑无效)";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(-3deg);
+  padding: 2px 10px;
+  border: 2px solid var(--red);
+  border-radius: 4px;
+  color: var(--red);
+  font-size: 0.7rem;
+  font-weight: 700;
+  background: rgba(53,23,25,0.85);
+  pointer-events: none;
+}
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>Rust 所有权移动后 · 栈/堆内存变化</h1>
+<p class="subtitle">force_read() 函数执行全过程 — 逐步追踪每个变量在栈和堆中的真实状态</p>
+
+<nav class="timeline">
+  <a href="#step1">① 创建 person</a>
+  <a href="#step2">② 创建裸指针</a>
+  <a href="#step3">③ Move 移动</a>
+  <a href="#step4">④ 修改 person_2</a>
+  <a href="#step5">⑤ ptr::read</a>
+  <a href="#step6">⑥ mem::forget</a>
+  <a href="#step7">⑦ 函数结束</a>
+  <a href="#summary">总结</a>
+</nav>
+
+<!-- ═══════════════ 源码总览 ═══════════════ -->
+<h2>源码</h2>
+<div class="code-block">
+<span class="kw">pub fn</span> <span class="fn">force_read</span>() {
+  <span class="kw">let mut</span> person = Person {
+    name: <span class="str">"John"</span>.<span class="fn">to_string</span>(),  <span class="comment">// 堆分配 "John"</span>
+    age: <span class="num">30</span>,
+  };
+
+  <span class="kw">let</span> person_raw_ptr = &amp;person <span class="kw">as</span> *<span class="kw">const</span> Person; <span class="comment">// 裸指针，记录栈地址</span>
+
+  <span class="kw">let mut</span> person_2 = person;  <span class="comment">// ← Move！按位复制栈上的 (ptr, cap, len, age)</span>
+  person_2.name = <span class="str">"Tom"</span>.<span class="fn">to_string</span>(); <span class="comment">// 旧 String "John" 被 drop → 堆释放</span>
+  person_2.age = <span class="num">1</span>;
+
+  <span class="kw">unsafe</span> {
+    <span class="kw">let</span> old_person: Person = ptr::<span class="fn">read</span>(person_raw_ptr); <span class="comment">// 从旧栈地址按位读出</span>
+    <span class="fn">println!</span>(<span class="str">"旧内存中的 person: {:?}"</span>, old_person);
+    std::mem::<span class="fn">forget</span>(old_person); <span class="comment">// 阻止析构 → 避免 double free</span>
+  }
+
+  <span class="fn">println!</span>(<span class="str">"person_2 {:?}"</span>, person_2);
+}
+</div>
+
+<p class="note">Person 结构体: <code>struct Person { name: String, age: u32 }</code>，String 在栈上占 24 字节 (ptr 8 + capacity 8 + len 8)，整个 Person 占 32 字节。</p>
+
+<hr>
+
+<!-- ═══════════════ STEP 1 ═══════════════ -->
+<h2 id="step1">① 创建 person</h2>
+<div class="code-block">
+<span class="highlight"><span class="kw">let mut</span> person = Person { name: <span class="str">"John"</span>.<span class="fn">to_string</span>(), age: <span class="num">30</span> };</span>
+</div>
+
+<p><code>"John".to_string()</code> 在堆上分配 4 字节，栈上的 String 结构保存指向堆的指针、容量和长度。</p>
+
+<div class="mem-diagram">
+  <span class="step-badge">STEP 1</span>
+  <div class="two-col">
+    <div>
+      <span class="region-label stack">栈 STACK</span>
+      <div class="var-tag person">person</div>
+      <div class="stack-frame">
+        <span class="frame-title">Person (32 bytes)</span>
+        <div class="mem-row">
+          <div class="mem-cell addr">0x7fff_0000</div>
+          <div class="mem-cell field">name.ptr</div>
+          <div class="mem-cell value ptr-val">→ 0x5555_1000</div>
+        </div>
+        <div class="mem-row">
+          <div class="mem-cell addr">0x7fff_0008</div>
+          <div class="mem-cell field">name.capacity</div>
+          <div class="mem-cell value num-val">4</div>
+        </div>
+        <div class="mem-row">
+          <div class="mem-cell addr">0x7fff_0010</div>
+          <div class="mem-cell field">name.len</div>
+          <div class="mem-cell value num-val">4</div>
+        </div>
+        <div class="mem-row">
+          <div class="mem-cell addr">0x7fff_0018</div>
+          <div class="mem-cell field">age</div>
+          <div class="mem-cell value num-val">30</div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <span class="region-label heap">堆 HEAP</span>
+      <div class="heap-block">
+        <div class="heap-addr">0x5555_1000</div>
+        <div class="heap-content">"John"</div>
+        <div class="heap-meta">4 bytes · cap=4</div>
+      </div>
+      <div class="arrow-note active">person.name.ptr 指向此处</div>
+    </div>
+  </div>
+</div>
+
+<hr>
+
+<!-- ═══════════════ STEP 2 ═══════════════ -->
+<h2 id="step2">② 创建裸指针</h2>
+<div class="code-block">
+<span class="highlight"><span class="kw">let</span> person_raw_ptr = &amp;person <span class="kw">as</span> *<span class="kw">const</span> Person;</span>
+</div>
+
+<p>裸指针只是一个整数，保存 person 在栈上的起始地址。<strong>不获得所有权</strong>，不受借用检查器约束，可以存活到 person 被 move 之后。</p>
+
+<div class="mem-diagram">
+  <span class="step-badge">STEP 2</span>
+  <div class="two-col">
+    <div>
+      <span class="region-label stack">栈 STACK</span>
+      <div class="var-tag rawptr">person_raw_ptr</div>
+      <div class="mem-row">
+        <div class="mem-cell addr">0x7fff_0020</div>
+        <div class="mem-cell field">*const Person</div>
+        <div class="mem-cell value ptr-val">= 0x7fff_0000</div>
+      </div>
+      <div class="arrow-note">指向 person 的栈地址（不是堆！）</div>
+
+      <hr class="dashed-sep">
+      <div class="var-tag person">person</div>
+      <div class="stack-frame">
+        <span class="frame-title">Person (32 bytes)</span>
+        <div class="mem-row">
+          <div class="mem-cell addr">0x7fff_0000</div>
+          <div class="mem-cell field">name.ptr</div>
+          <div class="mem-cell value ptr-val">→ 0x5555_1000</div>
+        </div>
+        <div class="mem-row">
+          <div class="mem-cell addr">0x7fff_0008</div>
+          <div class="mem-cell field">name.capacity</div>
+          <div class="mem-cell value num-val">4</div>
+        </div>
+        <div class="mem-row">
+          <div class="mem-cell addr">0x7fff_0010</div>
+          <div class="mem-cell field">name.len</div>
+          <div class="mem-cell value num-val">4</div>
+        </div>
+        <div class="mem-row">
+          <div class="mem-cell addr">0x7fff_0018</div>
+          <div class="mem-cell field">age</div>
+          <div class="mem-cell value num-val">30</div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <span class="region-label heap">堆 HEAP</span>
+      <div class="heap-block">
+        <div class="heap-addr">0x5555_1000</div>
+        <div class="heap-content">"John"</div>
+        <div class="heap-meta">4 bytes · cap=4</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="insight">
+  关键：person_raw_ptr 记录的是 <strong>栈地址 0x7fff_0000</strong>，不是堆地址。后面即使 person 被 move，这块栈内存的物理比特不会被清零——裸指针依然能读到残留值。
+</div>
+
+<hr>
+
+<!-- ═══════════════ STEP 3 ═══════════════ -->
+<h2 id="step3">③ Move 移动：let mut person_2 = person</h2>
+<div class="code-block">
+<span class="highlight"><span class="kw">let mut</span> person_2 = person;</span>  <span class="comment">// Move 语义</span>
+</div>
+
+<p>Rust 的 move 在底层就是 <strong>memcpy</strong>：把 person 的 32 字节原样复制到 person_2 的栈空间。堆上的 "John" <strong>没有任何变化</strong>，不会重新分配。</p>
+<p>编译器在类型系统层面标记 person 为「已移动」，禁止后续安全代码访问它——但<strong>物理内存中的比特纹丝不动</strong>。</p>
+
+<div class="mem-diagram">
+  <span class="step-badge">STEP 3</span>
+  <div class="two-col">
+    <div>
+      <span class="region-label stack">栈 STACK</span>
+
+      <div class="var-tag rawptr">person_raw_ptr = 0x7fff_0000</div>
+      <div class="mem-row">
+        <div class="mem-cell addr">0x7fff_0020</div>
+        <div class="mem-cell field">*const Person</div>
+        <div class="mem-cell value ptr-val">= 0x7fff_0000</div>
+      </div>
+
+      <hr class="dashed-sep">
+
+      <div class="var-tag person">person <span style="color:var(--red);font-size:0.7rem;">(已 move，逻辑无效)</span></div>
+      <div class="stack-frame moved-overlay" style="border-color: var(--faint); opacity: 0.6;">
+        <span class="frame-title" style="color:var(--faint);">物理比特仍在</span>
+        <div class="mem-row">
+          <div class="mem-cell addr">0x7fff_0000</div>
+          <div class="mem-cell field">name.ptr</div>
+          <div class="mem-cell value ptr-val">→ 0x5555_1000</div>
+        </div>
+        <div class="mem-row">
+          <div class="mem-cell addr">0x7fff_0008</div>
+          <div class="mem-cell field">name.capacity</div>
+          <div class="mem-cell value num-val">4</div>
+        </div>
+        <div class="mem-row">
+          <div class="mem-cell addr">0x7fff_0010</div>
+          <div class="mem-cell field">name.len</div>
+          <div class="mem-cell value num-val">4</div>
+        </div>
+        <div class="mem-row">
+          <div class="mem-cell addr">0x7fff_0018</div>
+          <div class="mem-cell field">age</div>
+          <div class="mem-cell value num-val">30</div>
+        </div>
+      </div>
+
+      <hr class="dashed-sep">
+
+      <div class="var-tag person2">person_2 <span style="color:var(--green);font-size:0.7rem;">(新 owner)</span></div>
+      <div class="stack-frame" style="border-color: var(--cyan);">
+        <span class="frame-title" style="color:var(--cyan);">按位复制的 32 bytes</span>
+        <div class="mem-row">
+          <div class="mem-cell addr">0x7fff_0040</div>
+          <div class="mem-cell field">name.ptr</div>
+          <div class="mem-cell value ptr-val">→ 0x5555_1000</div>
+        </div>
+        <div class="mem-row">
+          <div class="mem-cell addr">0x7fff_0048</div>
+          <div class="mem-cell field">name.capacity</div>
+          <div class="mem-cell value num-val">4</div>
+        </div>
+        <div class="mem-row">
+          <div class="mem-cell addr">0x7fff_0050</div>
+          <div class="mem-cell field">name.len</div>
+          <div class="mem-cell value num-val">4</div>
+        </div>
+        <div class="mem-row">
+          <div class="mem-cell addr">0x7fff_0058</div>
+          <div class="mem-cell field">age</div>
+          <div class="mem-cell value num-val">30</div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <span class="region-label heap">堆 HEAP（未变化）</span>
+      <div class="heap-block">
+        <div class="heap-addr">0x5555_1000</div>
+        <div class="heap-content">"John"</div>
+        <div class="heap-meta">4 bytes · cap=4</div>
+      </div>
+      <div class="arrow-note active">person_2.name.ptr 指向此处（唯一合法 owner）</div>
+      <div class="arrow-note danger-note">person 栈上的残留 ptr 也指向此处（但逻辑上已无效）</div>
+    </div>
+  </div>
+</div>
+
+<div class="insight">
+  Move = 栈上 memcpy + 编译器层面「禁止旧变量再用」。堆数据零拷贝。这就是为什么 Rust 的 move 是零成本的——但旧栈地址上的比特仍然可读（unsafe 可绕过编译器限制）。
+</div>
+
+<hr>
+
+<!-- ═══════════════ STEP 4 ═══════════════ -->
+<h2 id="step4">④ 修改 person_2</h2>
+<div class="code-block">
+<span class="highlight">person_2.name = <span class="str">"Tom"</span>.<span class="fn">to_string</span>();</span>  <span class="comment">// 旧 String 被 drop!</span>
+<span class="highlight">person_2.age = <span class="num">1</span>;</span>
+</div>
+
+<p>赋值 <code>person_2.name = "Tom".to_string()</code> 触发两步：</p>
+<p><strong>a)</strong> 旧 String（指向 "John"）被 <code>drop</code> → 堆上 0x5555_1000 的 4 字节被 <span class="danger">释放 (free)</span></p>
+<p><strong>b)</strong> 新 String "Tom" 分配新堆内存 → person_2.name.ptr 更新为新地址</p>
+
+<div class="mem-diagram">
+  <span class="step-badge">STEP 4</span>
+  <div class="two-col">
+    <div>
+      <span class="region-label stack">栈 STACK</span>
+
+      <div class="var-tag rawptr">person_raw_ptr = 0x7fff_0000</div>
+      <div class="mem-row">
+        <div class="mem-cell addr">0x7fff_0020</div>
+        <div class="mem-cell field">*const Person</div>
+        <div class="mem-cell value ptr-val">= 0x7fff_0000</div>
+      </div>
+
+      <hr class="dashed-sep">
+
+      <div class="var-tag person">person 残留比特 <span style="color:var(--red);font-size:0.7rem;">(悬垂!)</span></div>
+      <div class="stack-frame" style="border-color: var(--red); opacity: 0.75;">
+        <span class="frame-title" style="color:var(--red);">物理上仍存在，但 ptr 已悬垂</span>
+        <div class="mem-row">
+          <div class="mem-cell addr">0x7fff_0000</div>
+          <div class="mem-cell field">name.ptr</div>
+          <div class="mem-cell value" style="color:var(--red);text-decoration:line-through;">→ 0x5555_1000</div>
+        </div>
+        <div class="mem-row">
+          <div class="mem-cell addr">0x7fff_0008</div>
+          <div class="mem-cell field">name.capacity</div>
+          <div class="mem-cell value num-val">4</div>
+        </div>
+        <div class="mem-row">
+          <div class="mem-cell addr">0x7fff_0010</div>
+          <div class="mem-cell field">name.len</div>
+          <div class="mem-cell value num-val">4</div>
+        </div>
+        <div class="mem-row">
+          <div class="mem-cell addr">0x7fff_0018</div>
+          <div class="mem-cell field">age</div>
+          <div class="mem-cell value num-val">30</div>
+        </div>
+      </div>
+
+      <hr class="dashed-sep">
+
+      <div class="var-tag person2">person_2 <span style="color:var(--green);font-size:0.7rem;">(已更新)</span></div>
+      <div class="stack-frame" style="border-color: var(--cyan);">
+        <span class="frame-title" style="color:var(--cyan);">新值</span>
+        <div class="mem-row">
+          <div class="mem-cell addr">0x7fff_0040</div>
+          <div class="mem-cell field">name.ptr</div>
+          <div class="mem-cell value ptr-val">→ 0x5555_2000</div>
+        </div>
+        <div class="mem-row">
+          <div class="mem-cell addr">0x7fff_0048</div>
+          <div class="mem-cell field">name.capacity</div>
+          <div class="mem-cell value num-val">3</div>
+        </div>
+        <div class="mem-row">
+          <div class="mem-cell addr">0x7fff_0050</div>
+          <div class="mem-cell field">name.len</div>
+          <div class="mem-cell value num-val">3</div>
+        </div>
+        <div class="mem-row">
+          <div class="mem-cell addr">0x7fff_0058</div>
+          <div class="mem-cell field">age</div>
+          <div class="mem-cell value num-val">1</div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <span class="region-label freed">堆 HEAP</span>
+      <div class="heap-block freed-block">
+        <div class="heap-addr">0x5555_1000</div>
+        <div class="heap-content">"John"</div>
+        <div class="heap-meta">FREED!</div>
+      </div>
+      <div class="arrow-note danger-note">已被 person_2.name 的旧 String drop 释放</div>
+      <div class="arrow-note danger-note">person 残留的 ptr 仍指向这里 → 悬垂指针 (dangling)</div>
+
+      <div style="height: 20px;"></div>
+
+      <div class="heap-block" style="border-color: var(--cyan);">
+        <div class="heap-addr" style="background:var(--cyan-soft);color:var(--cyan);border-right-color:var(--cyan);">0x5555_2000</div>
+        <div class="heap-content" style="color:var(--cyan);">"Tom"</div>
+        <div class="heap-meta">3 bytes · cap=3</div>
+      </div>
+      <div class="arrow-note active">person_2.name.ptr 指向新分配</div>
+    </div>
+  </div>
+</div>
+
+<div class="insight red-insight">
+  此刻 person 旧栈地址上的 name.ptr (0x5555_1000) 已经是<strong>悬垂指针</strong>——它指向的堆内存已被释放。如果后续通过 ptr::read 读出并让 Rust 正常 drop，就会对同一地址执行第二次 free → <strong>Double Free</strong>。
+</div>
+
+<hr>
+
+<!-- ═══════════════ STEP 5 ═══════════════ -->
+<h2 id="step5">⑤ unsafe { ptr::read(person_raw_ptr) }</h2>
+<div class="code-block">
+<span class="highlight"><span class="kw">let</span> old_person: Person = ptr::<span class="fn">read</span>(person_raw_ptr);</span>
+<span class="comment">// 等价于: 从栈地址 0x7fff_0000 起，按位复制 32 字节到 old_person</span>
+</div>
+
+<p><code>ptr::read</code> 做的事和 move 一样——<strong>按位复制 (bitwise copy)</strong>。它从 person_raw_ptr 记录的旧栈地址读出 32 字节，构造出一个新的 Person 值。</p>
+<p>问题是：读出的 name.ptr 仍然是 0x5555_1000（已释放的堆地址）！old_person 持有一个<strong>悬垂指针</strong>。</p>
+
+<div class="mem-diagram">
+  <span class="step-badge">STEP 5</span>
+  <div class="two-col">
+    <div>
+      <span class="region-label stack">栈 STACK</span>
+
+      <div class="var-tag old">old_person <span style="font-size:0.7rem;color:var(--red);">(持有悬垂 ptr!)</span></div>
+      <div class="stack-frame" style="border-color: var(--red);">
+        <span class="frame-title" style="color:var(--red);">从旧地址按位读出</span>
+        <div class="mem-row">
+          <div class="mem-cell addr">0x7fff_0060</div>
+          <div class="mem-cell field">name.ptr</div>
+          <div class="mem-cell value" style="color:var(--red);">→ 0x5555_1000 (悬垂!)</div>
+        </div>
+        <div class="mem-row">
+          <div class="mem-cell addr">0x7fff_0068</div>
+          <div class="mem-cell field">name.capacity</div>
+          <div class="mem-cell value num-val">4</div>
+        </div>
+        <div class="mem-row">
+          <div class="mem-cell addr">0x7fff_0070</div>
+          <div class="mem-cell field">name.len</div>
+          <div class="mem-cell value num-val">4</div>
+        </div>
+        <div class="mem-row">
+          <div class="mem-cell addr">0x7fff_0078</div>
+          <div class="mem-cell field">age</div>
+          <div class="mem-cell value num-val">30</div>
+        </div>
+      </div>
+
+      <hr class="dashed-sep">
+      <p class="note">（person 残留比特、person_raw_ptr、person_2 仍在栈上，此处省略）</p>
+    </div>
+    <div>
+      <span class="region-label freed">堆 HEAP</span>
+      <div class="heap-block freed-block">
+        <div class="heap-addr">0x5555_1000</div>
+        <div class="heap-content">"John"</div>
+        <div class="heap-meta">FREED</div>
+      </div>
+      <div class="arrow-note danger-note">old_person.name.ptr 指向已释放内存</div>
+      <div class="arrow-note warn-note">println! 可能碰巧读出 "John"（内存未被覆写时），但这是 UB</div>
+
+      <div style="height: 16px;"></div>
+      <div class="heap-block" style="border-color: var(--cyan);">
+        <div class="heap-addr" style="background:var(--cyan-soft);color:var(--cyan);border-right-color:var(--cyan);">0x5555_2000</div>
+        <div class="heap-content" style="color:var(--cyan);">"Tom"</div>
+        <div class="heap-meta">3 bytes</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="insight red-insight">
+  如果 old_person 在这里正常走出作用域，Rust 会调用 String 的 drop → free(0x5555_1000)。但这块内存早在 Step 4 就被释放了！<strong>同一地址被 free 两次 = Double Free → 程序崩溃 / 安全漏洞。</strong>
+</div>
+
+<hr>
+
+<!-- ═══════════════ STEP 6 ═══════════════ -->
+<h2 id="step6">⑥ mem::forget(old_person)</h2>
+<div class="code-block">
+<span class="fn">println!</span>(<span class="str">"旧内存中的 person: {:?}"</span>, old_person); <span class="comment">// 碰巧能读出 "John"（UB，但通常未被覆写）</span>
+<span class="highlight">std::mem::<span class="fn">forget</span>(old_person);</span> <span class="comment">// 告诉 Rust：不要 drop 这个值</span>
+</div>
+
+<p><code>mem::forget</code> 消耗 old_person 的所有权，但<strong>不调用析构函数</strong>。效果：old_person 的栈空间被回收，但不会执行 <code>free(0x5555_1000)</code>。</p>
+
+<div class="mem-diagram">
+  <span class="step-badge">STEP 6</span>
+  <div class="two-col">
+    <div>
+      <span class="region-label stack">栈 STACK</span>
+      <div class="var-tag old" style="opacity:0.5;text-decoration:line-through;">old_person (已 forget，不再存在)</div>
+      <div class="arrow-note warn-note">栈空间回收，但 drop 未执行 → 没有第二次 free</div>
+
+      <hr class="dashed-sep">
+      <div class="var-tag person2">person_2 (仍然有效)</div>
+      <div class="stack-frame" style="border-color: var(--cyan);">
+        <span class="frame-title" style="color:var(--cyan);">唯一合法 owner</span>
+        <div class="mem-row">
+          <div class="mem-cell addr">0x7fff_0040</div>
+          <div class="mem-cell field">name.ptr</div>
+          <div class="mem-cell value ptr-val">→ 0x5555_2000</div>
+        </div>
+        <div class="mem-row">
+          <div class="mem-cell addr">0x7fff_0058</div>
+          <div class="mem-cell field">age</div>
+          <div class="mem-cell value num-val">1</div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <span class="region-label heap">堆 HEAP</span>
+      <div class="heap-block freed-block">
+        <div class="heap-addr">0x5555_1000</div>
+        <div class="heap-content">"John"</div>
+        <div class="heap-meta">FREED (仅一次)</div>
+      </div>
+      <div class="arrow-note">mem::forget 阻止了第二次 free → 避免 Double Free</div>
+
+      <div style="height: 16px;"></div>
+      <div class="heap-block" style="border-color: var(--cyan);">
+        <div class="heap-addr" style="background:var(--cyan-soft);color:var(--cyan);border-right-color:var(--cyan);">0x5555_2000</div>
+        <div class="heap-content" style="color:var(--cyan);">"Tom"</div>
+        <div class="heap-meta">3 bytes</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="insight">
+  <code>mem::forget</code> 不是 unsafe 函数——Rust 认为「泄漏内存」是安全的（只是浪费资源）。但在这里它是<strong>保命操作</strong>：不 forget 就会 double free。
+</div>
+
+<hr>
+
+<!-- ═══════════════ STEP 7 ═══════════════ -->
+<h2 id="step7">⑦ 函数结束 · 作用域清理</h2>
+<div class="code-block">
+<span class="fn">println!</span>(<span class="str">"person_2 {:?}"</span>, person_2); <span class="comment">// 输出: Person { name: "Tom", age: 1 }</span>
+<span class="comment">// } ← 函数结束，所有栈变量按声明逆序 drop</span>
+</div>
+
+<div class="mem-diagram">
+  <span class="step-badge">STEP 7 · 函数返回</span>
+  <div class="two-col">
+    <div>
+      <span class="region-label stack">栈 STACK</span>
+      <p style="color:var(--muted);font-size:0.85rem;">整个栈帧被回收（RSP 上移），所有局部变量的栈空间失效：</p>
+      <div class="mem-row">
+        <div class="mem-cell addr" style="text-decoration:line-through;">0x7fff_0000</div>
+        <div class="mem-cell field" style="text-decoration:line-through;opacity:0.5;">person 残留</div>
+        <div class="mem-cell value" style="opacity:0.4;">(不会触发 drop — 已被 move)</div>
+      </div>
+      <div class="mem-row">
+        <div class="mem-cell addr" style="text-decoration:line-through;">0x7fff_0020</div>
+        <div class="mem-cell field" style="text-decoration:line-through;opacity:0.5;">person_raw_ptr</div>
+        <div class="mem-cell value" style="opacity:0.4;">(裸指针无 drop)</div>
+      </div>
+      <div class="mem-row">
+        <div class="mem-cell addr" style="text-decoration:line-through;">0x7fff_0040</div>
+        <div class="mem-cell field" style="opacity:0.7;">person_2</div>
+        <div class="mem-cell value" style="color:var(--green);">drop → free(0x5555_2000)</div>
+      </div>
+    </div>
+    <div>
+      <span class="region-label freed">堆 HEAP · 最终状态</span>
+      <div class="heap-block freed-block">
+        <div class="heap-addr">0x5555_1000</div>
+        <div class="heap-content">"John"</div>
+        <div class="heap-meta">Step 4 释放</div>
+      </div>
+      <div class="heap-block freed-block" style="border-color:var(--orange);">
+        <div class="heap-addr" style="background:var(--orange-soft);color:var(--orange);border-right-color:var(--orange);">0x5555_2000</div>
+        <div class="heap-content" style="color:var(--orange);">"Tom"</div>
+        <div class="heap-meta">Step 7 释放</div>
+      </div>
+      <div class="arrow-note">所有堆内存均已正确释放，无泄漏、无 double free</div>
+    </div>
+  </div>
+</div>
+
+<hr>
+
+<!-- ═══════════════ 总结 ═══════════════ -->
+<h2 id="summary">总结：关键内存事件时间线</h2>
+
+<div class="mem-diagram" style="padding: 20px 24px;">
+<table style="width:100%;border-collapse:collapse;font-size:0.82rem;">
+<thead>
+<tr style="border-bottom:2px solid var(--border);color:var(--muted);text-align:left;">
+  <th style="padding:8px 12px;">步骤</th>
+  <th style="padding:8px 12px;">栈变化</th>
+  <th style="padding:8px 12px;">堆变化</th>
+  <th style="padding:8px 12px;">所有权</th>
+</tr>
+</thead>
+<tbody>
+<tr style="border-bottom:1px solid var(--border);">
+  <td style="padding:8px 12px;color:var(--blue);">① 创建 person</td>
+  <td style="padding:8px 12px;">分配 32B (ptr+cap+len+age)</td>
+  <td style="padding:8px 12px;color:var(--green);">alloc "John" 4B</td>
+  <td style="padding:8px 12px;">person 拥有堆</td>
+</tr>
+<tr style="border-bottom:1px solid var(--border);">
+  <td style="padding:8px 12px;color:var(--yellow);">② 裸指针</td>
+  <td style="padding:8px 12px;">多一个 8B 指针变量</td>
+  <td style="padding:8px 12px;color:var(--faint);">无变化</td>
+  <td style="padding:8px 12px;">无转移（裸指针不拥有）</td>
+</tr>
+<tr style="border-bottom:1px solid var(--border);">
+  <td style="padding:8px 12px;color:var(--purple);">③ Move</td>
+  <td style="padding:8px 12px;">memcpy 32B → person_2</td>
+  <td style="padding:8px 12px;color:var(--faint);">无变化（零拷贝）</td>
+  <td style="padding:8px 12px;color:var(--cyan);">person → person_2</td>
+</tr>
+<tr style="border-bottom:1px solid var(--border);">
+  <td style="padding:8px 12px;color:var(--cyan);">④ 修改 person_2</td>
+  <td style="padding:8px 12px;">person_2 字段更新</td>
+  <td style="padding:8px 12px;color:var(--red);">free "John" + alloc "Tom"</td>
+  <td style="padding:8px 12px;">person_2 拥有 "Tom"</td>
+</tr>
+<tr style="border-bottom:1px solid var(--border);">
+  <td style="padding:8px 12px;color:var(--red);">⑤ ptr::read</td>
+  <td style="padding:8px 12px;">从旧地址复制 32B → old_person</td>
+  <td style="padding:8px 12px;color:var(--faint);">无变化</td>
+  <td style="padding:8px 12px;color:var(--red);">old_person 持有悬垂 ptr!</td>
+</tr>
+<tr style="border-bottom:1px solid var(--border);">
+  <td style="padding:8px 12px;color:var(--orange);">⑥ mem::forget</td>
+  <td style="padding:8px 12px;">old_person 逻辑消失</td>
+  <td style="padding:8px 12px;color:var(--green);">阻止了 double free</td>
+  <td style="padding:8px 12px;">悬垂 ptr 被安全丢弃</td>
+</tr>
+<tr>
+  <td style="padding:8px 12px;color:var(--green);">⑦ 函数返回</td>
+  <td style="padding:8px 12px;">栈帧回收</td>
+  <td style="padding:8px 12px;color:var(--orange);">free "Tom"</td>
+  <td style="padding:8px 12px;">全部清理完毕</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<h3>核心要点</h3>
+<div class="insight">
+  <strong>Move 不清零旧栈内存</strong>：Rust 的 move 只是编译器层面的所有权转移 + 栈上 memcpy。旧地址的比特原封不动，只有 unsafe 的裸指针能绕过编译器读到它。
+</div>
+<div class="insight red-insight">
+  <strong>ptr::read 创造了一个「幽灵 owner」</strong>：old_person 和 person_2 的 name.ptr 曾指向同一块堆内存（在 Step 4 之前）。如果两者都 drop，就是 double free。<code>mem::forget</code> 是唯一的拆弹手段。
+</div>
+<div class="insight">
+  <strong>为什么 println! 能读出 "John"？</strong>：free 只是把内存还给分配器，不一定立刻覆写。在短时间内，旧数据大概率还在——但这是未定义行为 (UB)，绝不能依赖。
+</div>
+
+<p class="note" style="margin-top:40px;text-align:center;color:var(--faint);">
+  — 图解完毕 · 地址为示意值 —
+</p>
+
+</div>
+</body>
+</html>

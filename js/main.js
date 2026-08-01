@@ -1,28 +1,35 @@
-/*------------------------ 基础数据类型 ------------------------*/
-/*----------------- 数组 -----------------*/
-/* js 数组扩容
-快数组 (Fast Elements)： * 刚开始时，JS 数组在内存中也是连续的（类似于 Vec）。
-慢数组 (Dictionary / Slow Elements)： * 如果你写出了“稀疏数组”（比如 let arr = []; arr[10000] = 1;），
-JS 引擎发现连续分配 10000 个位置太浪费内存了，就会直接砸碎连续内存，
-将数组退化为一个哈希表 (HashTable / Dictionary)。
-此时的“扩容”不再是申请更大的连续内存，而是哈希表部分的 Rehash 操作。
-*/
-let arr = [1, 2, 3];
-
-/*----------------- 可变字符串 -----------------*/
-let mutable_str = 'hello world';
-
-/*----------------- Set -----------------*/
-let set = new Set([1, 2, 3]);
-
-/*----------------- 对象 -----------------*/
-let obj = {
-  name: 'zhangsan',
-  age: 18
+const a = {
+  name: 'a',
+  b: null
 };
 
-/*----------------- Map -----------------*/
-const map = new Map([
-  ['name', 'zhangsan'],
-  ['age', 18]
-]);
+const b = {
+  name: 'b',
+  a: null
+};
+a.b = b;
+b.a = a;
+
+/**
+ * JS 根据 根可达性来释放内存
+ * 根节点群包括：globalThis、栈帧中的变量s、等
+ * [ globalThis, const a, const b ]: GC Roots
+ *  ↓
+ * globalThis
+ *  ↓
+ *  a <-> b
+ */
+globalThis.a = a;
+
+
+setTimeout(() => {
+  /**
+   * 释放 a <-> b
+   * [ globalThis ]: GC Roots
+   *  ↓
+   * globalThis  
+   *  
+   *  a <-> b
+   */
+  globalThis.a = undefined;
+}, 1000);

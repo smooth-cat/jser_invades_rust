@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rust 函数所有权移动：栈帧与内存</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --surface-2: #21262d;
+  --surface-3: #0a0e14;
+  --border: #30363d;
+  --text: #e6edf3;
+  --muted: #8b949e;
+  --faint: #6e7681;
+  --stack: #58a6ff;
+  --stack-soft: rgba(88, 166, 255, 0.12);
+  --heap: #d2a8ff;
+  --heap-soft: rgba(210, 168, 255, 0.12);
+  --move: #ffa657;
+  --move-soft: rgba(255, 166, 87, 0.12);
+  --owner: #7ee787;
+  --owner-soft: rgba(126, 231, 135, 0.12);
+  --invalid: #f85149;
+  --invalid-soft: rgba(248, 81, 73, 0.11);
+  --code: "SF Mono", "JetBrains Mono", "Fira Code", Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  padding: 40px 20px 72px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  line-height: 1.7;
+}
+.wrap { width: min(1120px, 100%); margin: 0 auto; }
+h1 {
+  margin: 0 0 8px;
+  color: var(--stack);
+  font-size: clamp(1.7rem, 3vw, 2.2rem);
+  line-height: 1.3;
+}
+h2 {
+  margin: 50px 0 16px;
+  padding-left: 12px;
+  border-left: 3px solid var(--move);
+  color: var(--move);
+  font-size: 1.35rem;
+  line-height: 1.4;
+}
+h3 { margin: 28px 0 10px; color: var(--stack); font-size: 1.05rem; }
+p { margin: 10px 0; }
+.sub { margin: 0 0 30px; color: var(--muted); }
+.mono, code, pre { font-family: var(--code); }
+code {
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: #79c0ff;
+  font-size: 0.9em;
+}
+strong { color: #f0f6fc; }
+.note {
+  margin: 18px 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--move);
+  border-radius: 7px;
+  background: var(--surface);
+}
+.note b { color: var(--move); }
+.note.owner { border-left-color: var(--owner); }
+.note.owner b { color: var(--owner); }
+.note.invalid { border-left-color: var(--invalid); }
+.note.invalid b { color: var(--invalid); }
+
+/* 代码只保留与 move 直接相关的两处箭头；String 的实现细节不在此展开。 */
+.code-block {
+  margin: 18px 0;
+  padding: 17px 20px;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-3);
+  color: var(--text);
+  font-size: 0.88rem;
+  line-height: 1.75;
+  white-space: pre;
+  tab-size: 2;
+}
+.code-block .kw { color: #ff7b72; }
+.code-block .ty { color: #79c0ff; }
+.code-block .fn { color: #d2a8ff; }
+.code-block .str { color: #a5d6ff; }
+.code-block .cm { color: var(--muted); }
+.code-block .move-line {
+  display: inline-block;
+  width: 100%;
+  margin-left: -20px;
+  padding-left: 20px;
+  border-left: 3px solid var(--move);
+  background: var(--move-soft);
+}
+
+/* 顶部的心智模型 */
+.model {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 22px 0 30px;
+}
+.model-item {
+  min-height: 104px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.model-label { color: var(--muted); font-size: 0.78rem; }
+.model-value { margin-top: 5px; color: var(--owner); font-weight: 700; }
+.model-detail { margin-top: 2px; color: var(--faint); font-size: 0.78rem; }
+
+/* 统一的栈帧、栈槽、堆块图形 */
+.memory-scene {
+  margin: 20px 0;
+  padding: 22px;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+}
+.scene-caption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 18px;
+  margin-bottom: 18px;
+}
+.scene-caption strong { color: var(--owner); }
+.scene-caption span { color: var(--muted); font-size: 0.8rem; }
+.scene-code {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: -6px 0 18px;
+  padding: 9px 12px;
+  border-left: 3px solid var(--move);
+  background: var(--surface-3);
+}
+.scene-code span { color: var(--muted); font-size: 0.73rem; }
+.scene-code code { border: 0; background: transparent; color: #a5d6ff; }
+.handle-transfer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  max-width: 860px;
+  margin: 22px auto 4px;
+}
+.handle-card {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-3);
+  font-family: var(--code);
+  font-size: 0.75rem;
+}
+.handle-card.source { border-color: var(--invalid); background: var(--invalid-soft); }
+.handle-card.target { border-color: var(--owner); background: var(--owner-soft); }
+.handle-address { margin-bottom: 8px; color: var(--muted); }
+.handle-card.source .handle-address { color: var(--invalid); }
+.handle-card.target .handle-address { color: var(--owner); }
+.handle-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+.handle-field { padding: 6px 4px; border: 1px solid var(--border); border-radius: 4px; color: var(--text); text-align: center; }
+.handle-field.ptr { color: var(--heap); }
+.handle-field.len, .handle-field.cap { color: #79c0ff; }
+.transfer-middle { color: var(--move); font-family: var(--code); text-align: center; }
+.transfer-arrow { font-size: 1.35rem; line-height: 1.1; }
+.transfer-label { margin-top: 5px; font-size: 0.68rem; line-height: 1.35; }
+.transfer-note { margin: 9px auto 0; color: var(--muted); font-size: 0.75rem; text-align: center; }
+.transfer-note code { color: var(--move); }
+.memory-layout {
+  display: grid;
+  grid-template-columns: minmax(290px, 1fr) minmax(270px, 0.92fr);
+  gap: 30px;
+  align-items: start;
+  min-width: 650px;
+}
+.region-label {
+  margin-bottom: 9px;
+  color: var(--muted);
+  font-family: var(--code);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.region-label.stack-label { color: var(--stack); }
+.region-label.heap-label { color: var(--heap); }
+.stack-region, .heap-region { min-width: 0; }
+.frame {
+  overflow: hidden;
+  border: 2px solid var(--stack);
+  border-radius: 7px;
+  background: var(--surface-3);
+}
+.frame + .frame { margin-top: 15px; }
+.frame-title {
+  padding: 6px 12px;
+  background: var(--stack-soft);
+  color: var(--stack);
+  font-family: var(--code);
+  font-size: 0.79rem;
+  font-weight: 700;
+  text-align: center;
+}
+.frame-subtitle {
+  padding: 4px 10px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.7rem;
+  text-align: center;
+}
+.stack-slot {
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr);
+  border-top: 1px solid var(--border);
+  font-family: var(--code);
+  font-size: 0.74rem;
+}
+.stack-slot .slot-name {
+  padding: 8px 9px;
+  border-right: 1px solid var(--border);
+  background: var(--surface-2);
+  color: #79c0ff;
+  font-weight: 700;
+}
+.stack-slot .slot-value { padding: 8px 10px; color: var(--text); overflow-wrap: anywhere; }
+.stack-slot .slot-value.owner { background: var(--owner-soft); color: var(--owner); }
+.stack-slot .slot-value.moved { background: var(--invalid-soft); color: var(--invalid); }
+.stack-slot .slot-value.returning { background: var(--move-soft); color: var(--move); }
+.stack-slot .slot-value.neutral { color: var(--muted); }
+.slot-value .tag { color: var(--faint); }
+.slot-value.owner .tag { color: #9be9a5; }
+.slot-value.moved .tag { color: #ffaaa5; }
+.stack-direction {
+  margin-top: 8px;
+  color: var(--faint);
+  font-size: 0.7rem;
+  text-align: right;
+}
+.stack-direction::before { content: "栈帧顶部（高地址）"; }
+.stack-direction::after { content: "栈向下增长 ↓"; margin-left: 12px; color: var(--stack); }
+
+.heap-block {
+  overflow: hidden;
+  border: 2px solid var(--heap);
+  border-radius: 7px;
+  background: var(--surface-3);
+}
+.heap-title {
+  padding: 6px 12px;
+  background: var(--heap-soft);
+  color: var(--heap);
+  font-family: var(--code);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-align: center;
+}
+.heap-address { padding: 7px 12px 0; color: var(--muted); font-family: var(--code); font-size: 0.69rem; }
+.heap-bytes { display: grid; grid-template-columns: repeat(5, minmax(42px, 1fr)); gap: 4px; padding: 10px 12px 12px; }
+.heap-byte {
+  position: relative;
+  min-height: 57px;
+  padding: 15px 4px 6px;
+  border: 1px solid var(--heap);
+  border-radius: 4px;
+  background: var(--heap-soft);
+  color: var(--heap);
+  font-family: var(--code);
+  font-size: 0.76rem;
+  text-align: center;
+}
+.heap-byte::before { content: attr(data-index); position: absolute; top: 2px; left: 4px; color: var(--faint); font-size: 0.58rem; }
+.heap-note { padding: 0 12px 11px; color: var(--muted); font-size: 0.73rem; }
+.heap-note b { color: var(--heap); }
+.heap-empty { padding: 20px 14px; border: 1px dashed var(--border); color: var(--faint); font-family: var(--code); font-size: 0.75rem; text-align: center; }
+
+/* 连接栈上的 handle 与同一堆块 */
+.ownership-link {
+  position: relative;
+  margin: 23px 0 10px;
+  padding: 9px 10px;
+  border: 1px dashed var(--move);
+  border-radius: 6px;
+  background: var(--move-soft);
+  color: var(--move);
+  font-family: var(--code);
+  font-size: 0.75rem;
+  text-align: center;
+}
+.ownership-link::before { content: "└── "; }
+.ownership-link::after { content: " ──▶"; }
+.ownership-link span { color: var(--text); }
+.ownership-link.single { margin-top: 54px; }
+.ownership-link.single::before, .ownership-link.single::after { content: ""; }
+.ownership-link.single span::before { content: "唯一的拥有者："; color: var(--move); }
+
+/* 栈向下增长：caller 在上，callee 在下 */
+.call-stack {
+  display: flex;
+  max-width: 720px;
+  margin: 0 auto;
+  flex-direction: column;
+  gap: 12px;
+  align-items: stretch;
+}
+.call-arrow {
+  color: var(--move);
+  font-family: var(--code);
+  font-size: 1.25rem;
+  text-align: center;
+}
+.call-arrow small { display: block; color: var(--move); font-size: 0.61rem; line-height: 1.25; }
+.call-stack .frame + .frame { margin-top: 0; }
+
+/* 复制与移动的对照 */
+.compare {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin: 20px 0;
+}
+.compare-box {
+  padding: 15px 17px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.compare-box h3 { margin: 0 0 9px; }
+.compare-box ul { margin: 0; padding-left: 19px; }
+.compare-box li { margin: 4px 0; color: var(--muted); font-size: 0.86rem; }
+.compare-box.move h3 { color: var(--move); }
+.compare-box.clone h3 { color: var(--stack); }
+.key-table { width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 0.86rem; }
+.key-table th, .key-table td { padding: 9px 11px; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+.key-table th { background: var(--surface-2); color: var(--muted); font-weight: 600; }
+.key-table td { background: var(--surface); }
+.key-table td:first-child { color: var(--move); font-family: var(--code); white-space: nowrap; }
+.footer { margin-top: 48px; color: var(--faint); font-size: 0.75rem; text-align: center; }
+
+@media (max-width: 760px) {
+  body { padding: 28px 14px 56px; }
+  .model, .compare { grid-template-columns: 1fr; }
+  .memory-layout { grid-template-columns: 1fr; min-width: 0; gap: 21px; }
+  .call-stack { max-width: none; min-width: 0; }
+  .call-arrow { margin: -3px 0; }
+  .handle-transfer { grid-template-columns: 1fr; max-width: none; gap: 8px; }
+  .transfer-middle { display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .transfer-arrow { line-height: 1; transform: rotate(90deg); }
+  .transfer-label { margin-top: 0; }
+  .ownership-link.single { margin-top: 14px; }
+  .stack-direction { text-align: left; }
+  .key-table { display: block; overflow-x: auto; white-space: nowrap; }
+}
+</style>
+</head>
+<body>
+<main class="wrap">
+  <h1>Rust 函数调用中的所有权移动</h1>
+  <p class="sub">以 <code>src/fn_move.rs</code> 为例：观察 <code>s1 → s → s2</code> 的拥有者如何随着函数调用改变。</p>
+
+  <div class="model" aria-label="所有权移动的三个关键结论">
+    <div class="model-item">
+      <div class="model-label">移动的对象</div>
+      <div class="model-value">栈上的 String 结构</div>
+      <div class="model-detail">ptr / len / cap 传到新栈槽</div>
+    </div>
+    <div class="model-item">
+      <div class="model-label">移动后的旧名字</div>
+      <div class="model-value">不可再使用</div>
+      <div class="model-detail">即使旧栈槽里还残留相同位模式</div>
+    </div>
+    <div class="model-item">
+      <div class="model-label">清理责任</div>
+      <div class="model-value">始终只有一个 owner</div>
+      <div class="model-detail">最终由离开作用域时仍存活的 owner drop</div>
+    </div>
+  </div>
+
+  <pre class="code-block" aria-label="src/fn_move.rs 示例代码"><code><span class="kw">pub fn</span> <span class="fn">demo</span>() {
+  <span class="kw">let</span> s1 = <span class="ty">String</span>::from(<span class="str">"hello"</span>);
+  <span class="move-line"><span class="kw">let</span> s2 = <span class="fn">do_move</span>(s1); <span class="cm">// s1 按值传参：move</span></span>
+  <span class="fn">println!</span>(<span class="str">"{}"</span>, s2);
+}
+
+<span class="kw">fn</span> <span class="fn">do_move</span>(<span class="kw">mut</span> s: <span class="ty">String</span>) -&gt; <span class="ty">String</span> {
+  s.push_str(<span class="str">" world!"</span>); <span class="cm">// 这里的 String 操作不是本图重点</span>
+  <span class="move-line">s <span class="cm">// 返回时再次 move 给调用者</span></span>
+}</code></pre>
+
+  <h2>先固定一个简化的内存模型</h2>
+  <p>下面把 <code>String</code> 拆成两部分来画：<strong>栈槽里的结构（<code>ptr / len / cap</code>）</strong>，以及它指向的堆资源。所有权移动的关键，正是这三个字段从旧绑定的栈槽传到新绑定的栈槽；<strong>堆上的字节只有一份</strong>。不展开创建、扩容或 <code>push_str</code> 的过程。</p>
+  <div class="memory-scene" role="img" aria-label="栈上的 String handle 指向堆上的唯一字节块">
+    <div class="scene-caption"><strong>一个值 = 栈上的 String 结构 + 堆上的资源</strong><span>示意地址：H0（并非真实地址）</span></div>
+    <div class="scene-code"><span>当前执行代码</span><code>let s1 = String::from("hello");</code></div>
+    <div class="memory-layout">
+      <section class="stack-region">
+        <div class="region-label stack-label">Stack · demo 栈帧</div>
+        <div class="frame">
+          <div class="frame-title">当前函数：demo</div>
+          <div class="stack-slot"><div class="slot-name">s1</div><div class="slot-value owner">String handle<br><span class="tag">ptr = H0 · len = 5 · cap = 5</span></div></div>
+        </div>
+        <div class="stack-direction"></div>
+      </section>
+      <section class="heap-region">
+        <div class="region-label heap-label">Heap · 动态资源</div>
+        <div class="heap-block">
+          <div class="heap-title">H0：唯一一块字符串字节</div>
+          <div class="heap-address">由 s1 的 ptr 指向</div>
+          <div class="heap-bytes"><div class="heap-byte" data-index="+0">h</div><div class="heap-byte" data-index="+1">e</div><div class="heap-byte" data-index="+2">l</div><div class="heap-byte" data-index="+3">l</div><div class="heap-byte" data-index="+4">o</div></div>
+          <div class="heap-note"><b>重点：</b>资源只有一份，后续 owner 会改变，但 H0 不会因为 move 被复制。</div>
+        </div>
+        <div class="ownership-link"><span>s1 的 ptr = H0</span></div>
+      </section>
+    </div>
+  </div>
+
+  <h2>三个时刻：栈帧里到底换了什么</h2>
+
+  <h3>① 调用前：<code>s1</code> 是当前 owner</h3>
+  <div class="memory-scene" role="img" aria-label="调用 do_move 前，demo 栈帧中的 s1 拥有 H0">
+    <div class="scene-caption"><strong>执行到 <code>let s2 = do_move(s1)</code> 之前</strong><span>只有调用者栈帧存在</span></div>
+    <div class="memory-layout">
+      <section class="stack-region">
+        <div class="region-label stack-label">Stack · 从高地址到低地址</div>
+        <div class="frame">
+          <div class="frame-title">demo 栈帧（调用者）</div>
+          <div class="stack-slot"><div class="slot-name">s1</div><div class="slot-value owner">owner<br><span class="tag">ptr = H0 · len = 5 · cap = 5</span></div></div>
+          <div class="stack-slot"><div class="slot-name">s2</div><div class="slot-value neutral">尚未创建</div></div>
+        </div>
+        <div class="stack-direction"></div>
+      </section>
+      <section class="heap-region">
+        <div class="region-label heap-label">Heap · H0</div>
+        <div class="heap-block">
+          <div class="heap-title">H0 · 被 s1 拥有</div>
+          <div class="heap-bytes"><div class="heap-byte" data-index="+0">h</div><div class="heap-byte" data-index="+1">e</div><div class="heap-byte" data-index="+2">l</div><div class="heap-byte" data-index="+3">l</div><div class="heap-byte" data-index="+4">o</div></div>
+        </div>
+        <div class="ownership-link single"><span>s1</span></div>
+      </section>
+    </div>
+  </div>
+
+  <h3>② 按值传参：栈上的 <code>String</code> 结构从 <code>s1</code> 传到 <code>s</code></h3>
+  <div class="memory-scene" role="img" aria-label="调用 do_move 时，s1 失效，do_move 栈帧的参数 s 成为 H0 的 owner">
+    <div class="scene-caption"><strong>执行 <code>do_move(s1)</code>：移动发生在参数边界</strong><span>两个栈帧同时存在；堆资源仍只有 H0 一份</span></div>
+    <div class="call-stack">
+      <div class="frame">
+        <div class="frame-title">demo 栈帧 · caller</div>
+        <div class="stack-slot"><div class="slot-name">s1</div><div class="slot-value moved">moved / 不可用<br><span class="tag">旧 slot 可能仍留着 H0 的位</span></div></div>
+        <div class="stack-slot"><div class="slot-name">s2</div><div class="slot-value neutral">等待返回值</div></div>
+      </div>
+      <div class="call-arrow" aria-hidden="true">↓<small>按值传递 · ownership</small></div>
+      <div class="frame">
+        <div class="frame-title">do_move 栈帧 · callee</div>
+        <div class="stack-slot"><div class="slot-name">s</div><div class="slot-value owner">owner<br><span class="tag">ptr = H0 · len = 5 · cap = 5</span></div></div>
+        <div class="frame-subtitle">do_move 栈帧是调用时新建的；只有实参 s1 的所有权移入参数槽 s</div>
+      </div>
+    </div>
+    <div class="handle-transfer" role="img" aria-label="String 的 ptr、len、cap 三个字段从 demo 的 s1 栈槽传递到 do_move 的 s 栈槽">
+      <div class="handle-card source">
+        <div class="handle-address">demo::s1 栈槽（示意：&amp;s1 = 0x...730）</div>
+        <div class="handle-fields"><div class="handle-field ptr">ptr = H0</div><div class="handle-field len">len = 5</div><div class="handle-field cap">cap = 5</div></div>
+      </div>
+      <div class="transfer-middle"><div class="transfer-arrow">→</div><div class="transfer-label">move<br>3 个 machine words<br>（栈上结构）</div></div>
+      <div class="handle-card target">
+        <div class="handle-address">do_move::s 栈槽（示意：&amp;s = 0x...790）</div>
+        <div class="handle-fields"><div class="handle-field ptr">ptr = H0</div><div class="handle-field len">len = 5</div><div class="handle-field cap">cap = 5</div></div>
+      </div>
+    </div>
+    <div class="transfer-note"><code>&amp;s1 != &amp;s</code>：栈槽地址改变；<code>s1.ptr == s.ptr == H0</code>：堆资源地址不因 move 改变。</div>
+    <div class="memory-layout" style="margin-top:24px;">
+      <section class="stack-region">
+        <div class="region-label stack-label">Stack · 两个独立的栈帧</div>
+        <div class="stack-direction"></div>
+        <div class="note invalid"><b>s1 已失效：</b>Rust 编译器不允许后续再读取或 drop <code>s1</code>。这不是把它“清空成 null”，而是把这个绑定标记为 moved。</div>
+      </section>
+      <section class="heap-region">
+        <div class="region-label heap-label">Heap · H0（未复制）</div>
+        <div class="heap-block">
+          <div class="heap-title">H0 · 现在由 s 拥有</div>
+          <div class="heap-bytes"><div class="heap-byte" data-index="+0">h</div><div class="heap-byte" data-index="+1">e</div><div class="heap-byte" data-index="+2">l</div><div class="heap-byte" data-index="+3">l</div><div class="heap-byte" data-index="+4">o</div></div>
+        </div>
+        <div class="ownership-link single"><span>s</span></div>
+      </section>
+    </div>
+  </div>
+
+  <h3>③ 返回值再移动：<code>s</code> 交给 <code>s2</code>，callee 栈帧随后销毁</h3>
+  <div class="memory-scene" role="img" aria-label="do_move 返回时，s 移动给 s2，do_move 栈帧销毁，H0 由 s2 拥有">
+    <div class="scene-caption"><strong>执行 <code>s</code> 返回并完成 <code>let s2 = ...</code></strong><span>返回值的所有权回到调用者</span></div>
+    <div class="call-stack">
+      <div class="frame">
+        <div class="frame-title">demo 栈帧 · caller</div>
+        <div class="stack-slot"><div class="slot-name">s1</div><div class="slot-value moved">moved / 不可用</div></div>
+        <div class="stack-slot"><div class="slot-name">s2</div><div class="slot-value owner">owner<br><span class="tag">ptr = H0 · len = 5 · cap = 5</span></div></div>
+      </div>
+      <div class="call-arrow" aria-hidden="true">↑<small>返回 move · return value</small></div>
+      <div class="frame">
+        <div class="frame-title">do_move 栈帧 · 即将离开</div>
+        <div class="stack-slot"><div class="slot-name">s</div><div class="slot-value returning">moved out<br><span class="tag">返回值已交给 s2</span></div></div>
+        <div class="frame-subtitle">栈帧销毁时不会再次 drop H0</div>
+      </div>
+    </div>
+    <div class="memory-layout" style="margin-top:24px;">
+      <section class="stack-region">
+        <div class="region-label stack-label">Stack · callee 帧被弹出</div>
+        <div class="frame">
+          <div class="frame-title">demo 栈帧（继续执行）</div>
+          <div class="stack-slot"><div class="slot-name">s1</div><div class="slot-value moved">moved / 不可用</div></div>
+          <div class="stack-slot"><div class="slot-name">s2</div><div class="slot-value owner">唯一 owner：H0</div></div>
+        </div>
+        <div class="stack-direction"></div>
+      </section>
+      <section class="heap-region">
+        <div class="region-label heap-label">Heap · H0（仍是同一块）</div>
+        <div class="heap-block">
+          <div class="heap-title">H0 · 被 s2 拥有</div>
+          <div class="heap-bytes"><div class="heap-byte" data-index="+0">h</div><div class="heap-byte" data-index="+1">e</div><div class="heap-byte" data-index="+2">l</div><div class="heap-byte" data-index="+3">l</div><div class="heap-byte" data-index="+4">o</div></div>
+        </div>
+        <div class="ownership-link single"><span>s2</span></div>
+      </section>
+    </div>
+  </div>
+
+  <h2>把“栈内存变化”说准确</h2>
+  <div class="note owner"><b>语义层面：</b><code>s1</code>、<code>s</code>、<code>s2</code> 是三个不同时刻的绑定名；owner 沿着 <code>s1 → s → s2</code> 传递，任意时刻都只有一个合法 owner。</div>
+  <div class="note"><b>栈槽层面：</b>在这张可观察的教学图里，<code>ptr / len / cap</code> 三个字段从 <code>&amp;s1</code> 所在的 caller 栈槽进入 <code>&amp;s</code> 所在的 callee 栈槽——这就是“栈上的 <code>String</code> 结构发生了移动”。实现可能用寄存器传递、复用栈槽，或把这次传递优化掉，因此不应把它理解成必然执行一次 <code>memcpy</code>。</div>
+  <div class="note invalid"><b>旧栈槽层面：</b>move 之后，<code>s1</code> 的旧槽可以被覆盖、复用，甚至暂时保留原来的位模式；这些位不代表 <code>s1</code> 仍然可用。编译器只保证：代码不能再通过 <code>s1</code> 访问这份资源。</div>
+
+  <div class="compare" aria-label="move 与 clone 的区别">
+    <section class="compare-box move">
+      <h3>本例：move</h3>
+      <ul>
+        <li>堆上仍然是一块 H0。</li>
+        <li>所有权从旧绑定转给新绑定。</li>
+        <li>旧绑定不可再用，避免双重释放。</li>
+      </ul>
+    </section>
+    <section class="compare-box clone">
+      <h3>如果写成 clone</h3>
+      <ul>
+        <li>会得到一份独立的新值/新资源。</li>
+        <li>原绑定和新绑定都继续有效。</li>
+        <li>这是显式复制成本，不是本例的默认行为。</li>
+      </ul>
+    </section>
+  </div>
+
+  <h2>最后的清理时刻</h2>
+  <p>回到 <code>demo</code> 后，<code>println!</code> 只借用 <code>s2</code> 读取它。函数末尾，<code>s2</code> 是仍然存活的唯一 owner，于是由它负责释放 H0；<code>s1</code> 和已经销毁的参数 <code>s</code> 都不会再释放一次。</p>
+  <table class="key-table">
+    <thead><tr><th>代码位置</th><th>当前合法 owner</th><th>栈帧状态</th><th>堆资源</th></tr></thead>
+    <tbody>
+      <tr><td><code>let s1 = ...</code></td><td><code>s1</code></td><td>只有 <code>demo</code></td><td>H0 一份</td></tr>
+      <tr><td><code>do_move(s1)</code></td><td><code>s</code></td><td>caller + callee</td><td>H0 一份</td></tr>
+      <tr><td><code>let s2 = ...</code> 完成</td><td><code>s2</code></td><td>callee 帧已弹出</td><td>H0 一份</td></tr>
+      <tr><td><code>demo</code> 结束</td><td>无</td><td>caller 帧弹出</td><td>由 <code>s2</code> drop 后释放</td></tr>
+    </tbody>
+  </table>
+
+  <p class="footer">示意图针对 <code>src/fn_move.rs</code> 的所有权移动；地址、栈槽位置和调用约定均为教学简化。</p>
+</main>
+</body>
+</html>
