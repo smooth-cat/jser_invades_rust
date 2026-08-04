@@ -1,18 +1,22 @@
-use demo::fn_move;
-use demo::do_move;
-use demo::mut_rang;
-use demo::life_circle;
+mod closure_01_syntax;
+mod closure_02_traits;
+mod closure_03_move;
+mod closure_04_type_declare;
+mod closure_05_iterator;
+mod closure_06_pitfalls;
 
 fn main() {
-  fn_move::demo();
-  // do_move::do_move();
-  // do_move::force_read();
-  // mut_rang::demo();
+  let demos: &[(&str, fn())] = &[
+    ("1. 闭包定义与语法", closure_01_syntax::demo),
+    ("2. 三大 Trait 模型与捕获方式", closure_02_traits::demo),
+    ("3. move 关键字", closure_03_move::demo),
+    ("4. 闭包作为参数", closure_04_type_declare::demo),
+    ("5. 闭包 + 迭代器", closure_05_iterator::demo),
+    ("6. 常见坑", closure_06_pitfalls::demo),
+  ];
 
-  // life_circle::life_shrink();
-  // life_circle::conflict_life_circle();
-  // life_circle::trait_life_circle();
-  // life_circle::closure_param();
-  // life_circle::closure_return();
-  // life_circle::closure_in_struct();
+  for (title, demo) in demos {
+    println!("\n{:=^60}", format!(" {title} "));
+    demo();
+  }
 }

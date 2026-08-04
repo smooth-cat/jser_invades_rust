@@ -1,0 +1,1013 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rust Fn 只读借用闭包：运行时内存布局</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+:root {
+  --bg: #0d1117;
+  --panel: #161b22;
+  --panel-strong: #1c2129;
+  --surface: #090d12;
+  --border: #30363d;
+  --border-soft: #21262d;
+  --text: #c9d1d9;
+  --muted: #8b949e;
+  --faint: #6e7681;
+  --blue: #58a6ff;
+  --blue-soft: rgba(56, 139, 253, 0.13);
+  --green: #7ee787;
+  --green-soft: rgba(46, 160, 67, 0.13);
+  --purple: #d2a8ff;
+  --purple-soft: rgba(163, 113, 247, 0.13);
+  --orange: #ffa657;
+  --orange-soft: rgba(240, 136, 62, 0.13);
+  --red: #ff7b72;
+  --yellow: #e3b341;
+  --mono: "SF Mono", "JetBrains Mono", "Fira Code", Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  line-height: 1.7;
+  padding: 40px 20px 72px;
+}
+
+.container { width: min(1160px, 100%); margin: 0 auto; }
+
+h1 {
+  color: var(--blue);
+  font-family: var(--mono);
+  font-size: clamp(1.55rem, 3vw, 2rem);
+  font-weight: 500;
+  border-bottom: 1px solid var(--border-soft);
+  padding-bottom: 12px;
+  overflow-wrap: anywhere;
+}
+
+h2 {
+  color: var(--orange);
+  font-family: var(--mono);
+  font-size: 1.25rem;
+  font-weight: 500;
+  margin: 48px 0 18px;
+  padding-left: 12px;
+  border-left: 3px solid var(--orange);
+}
+
+h3 {
+  color: #79c0ff;
+  font-family: var(--mono);
+  font-size: 1rem;
+  font-weight: 500;
+  margin: 28px 0 12px;
+}
+
+p { margin: 10px 0; }
+code, pre, .mono { font-family: var(--mono); }
+
+p code, li code, td code, .callout code {
+  color: #79c0ff;
+  background: var(--border-soft);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
+.subtitle {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.88rem;
+  margin: 8px 0 32px;
+}
+
+.source-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
+  gap: 18px;
+  align-items: stretch;
+}
+
+.code-block {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 18px;
+  overflow-x: auto;
+  font-size: 0.82rem;
+  line-height: 1.8;
+  white-space: pre;
+  tab-size: 2;
+}
+
+.code-block code { font: inherit; color: inherit; }
+.kw { color: var(--red); }
+.ty { color: #79c0ff; }
+.fn { color: var(--purple); }
+.num { color: #79c0ff; }
+.str { color: #a5d6ff; }
+.cm { color: var(--muted); }
+.mac { color: var(--orange); }
+.life { color: var(--yellow); }
+
+.conclusion {
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--green);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 18px;
+  min-width: 0;
+}
+
+.conclusion-title {
+  color: var(--green);
+  font-family: var(--mono);
+  font-weight: 500;
+  margin-bottom: 10px;
+}
+
+.fact {
+  display: grid;
+  grid-template-columns: 76px 1fr;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-soft);
+  font-size: 0.85rem;
+}
+
+.fact:last-child { border-bottom: 0; }
+.fact-label { color: var(--muted); }
+.fact-value { color: var(--text); min-width: 0; overflow-wrap: anywhere; }
+.fact-value strong { color: var(--orange); font-weight: 500; }
+
+.callout {
+  margin: 18px 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--blue);
+  border-radius: 6px;
+  background: var(--panel);
+  font-size: 0.88rem;
+}
+
+.callout.warning { border-left-color: var(--yellow); }
+.callout strong { color: var(--orange); font-weight: 500; }
+
+/* Runtime stepper */
+.runtime-tool {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.runtime-toolbar {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 40px;
+  gap: 10px;
+  align-items: center;
+  padding: 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-strong);
+}
+
+.nav-btn {
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  background: var(--surface);
+  font: 500 1.2rem var(--sans);
+  cursor: pointer;
+}
+
+.nav-btn:hover:not(:disabled) { border-color: var(--blue); color: var(--blue); }
+.nav-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.step-tabs {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(86px, 1fr));
+  gap: 6px;
+  min-width: 0;
+}
+
+.step-tab {
+  min-height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.73rem;
+  padding: 6px 8px;
+  cursor: pointer;
+  white-space: normal;
+}
+
+.step-tab:hover { border-color: var(--faint); color: var(--text); }
+.step-tab[aria-selected="true"] {
+  background: var(--blue-soft);
+  border-color: var(--blue);
+  color: var(--blue);
+}
+
+.tab-short { display: none; }
+
+.step-summary {
+  min-height: 74px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.step-kicker {
+  color: var(--blue);
+  font: 500 0.75rem var(--mono);
+  margin-bottom: 2px;
+}
+
+.step-title {
+  color: var(--text);
+  font: 500 0.98rem var(--mono);
+}
+
+.step-detail { color: var(--muted); font-size: 0.82rem; margin-top: 2px; }
+
+.live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--green);
+  font: 0.72rem var(--mono);
+  white-space: nowrap;
+}
+
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+
+.memory-stage {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1.65fr) minmax(260px, 0.75fr);
+  gap: 18px;
+  padding: 18px;
+  background: var(--surface);
+  min-height: 610px;
+}
+
+.memory-zone {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+}
+
+.zone-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 10px;
+  font-family: var(--mono);
+}
+
+.zone-title {
+  font-size: 0.77rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+.stack-zone .zone-title { color: var(--green); }
+.heap-zone .zone-title { color: var(--purple); }
+.zone-meta { color: var(--faint); font-size: 0.67rem; text-align: right; }
+
+.address-axis {
+  display: flex;
+  justify-content: space-between;
+  color: var(--faint);
+  font: 0.65rem var(--mono);
+  padding: 0 2px 8px;
+}
+
+.frames { display: flex; flex-direction: column; gap: 12px; }
+
+.stack-frame {
+  border: 2px solid var(--green);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--panel);
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 180ms ease, transform 180ms ease, border-color 180ms ease;
+}
+
+.stack-frame.future {
+  display: none;
+}
+
+.stack-frame.entering { animation: frame-in 240ms ease both; }
+
+@keyframes frame-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.frame-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--green-soft);
+  color: var(--green);
+  font: 500 0.76rem var(--mono);
+  padding: 7px 10px;
+}
+
+.frame-sub { color: var(--muted); font-weight: 400; text-align: right; }
+
+.stack-row {
+  display: grid;
+  grid-template-columns: minmax(100px, 0.85fr) minmax(150px, 1.35fr) 48px minmax(100px, 0.8fr) 58px;
+  min-height: 40px;
+  border-top: 1px solid var(--border);
+}
+
+.stack-cell {
+  min-width: 0;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  border-right: 1px solid var(--border);
+  font: 0.75rem var(--mono);
+  overflow-wrap: anywhere;
+}
+
+.stack-cell:last-child { border-right: 0; }
+.stack-cell.field { color: #79c0ff; background: var(--surface); font-weight: 500; }
+.stack-cell.value { color: var(--orange); position: relative; }
+.stack-cell.type { color: var(--muted); }
+.stack-cell.size { color: var(--faint); justify-content: center; white-space: nowrap; }
+.stack-cell.value.target { box-shadow: inset 3px 0 0 var(--orange); }
+.stack-cell.value.pointer { color: var(--blue); box-shadow: inset 3px 0 0 var(--blue); }
+.stack-cell.link-lane { padding: 0; background: var(--surface); }
+.stack-cell.pending { color: var(--faint); font-style: italic; }
+
+.moved-slot {
+  color: var(--faint) !important;
+  background: repeating-linear-gradient(135deg, transparent, transparent 6px, rgba(139, 148, 158, 0.06) 6px, rgba(139, 148, 158, 0.06) 12px);
+}
+
+.frame-note {
+  border-top: 1px solid var(--border);
+  padding: 8px 10px;
+  color: var(--muted);
+  background: var(--surface);
+  font-size: 0.72rem;
+}
+
+.heap-zone {
+  border: 2px solid var(--purple);
+  border-radius: 6px;
+  padding: 14px;
+  background: var(--purple-soft);
+  align-self: start;
+}
+
+.heap-empty {
+  min-height: 250px;
+  border: 1px dashed rgba(210, 168, 255, 0.55);
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  padding: 20px;
+  background: var(--surface);
+}
+
+.heap-zero {
+  color: var(--purple);
+  font: 500 1.65rem var(--mono);
+}
+
+.heap-copy { color: var(--muted); font-size: 0.78rem; max-width: 250px; margin: 6px auto 0; }
+
+.not-heap {
+  margin-top: 12px;
+  display: grid;
+  gap: 7px;
+  font: 0.72rem var(--mono);
+  color: var(--muted);
+}
+
+.not-heap span::before { content: "\00d7"; color: var(--red); margin-right: 7px; }
+
+.static-strip {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--orange);
+  border-radius: 5px;
+  background: var(--panel);
+  font: 0.73rem var(--mono);
+}
+
+.static-label { color: var(--orange); }
+.static-value { color: #a5d6ff; min-width: 0; overflow-wrap: anywhere; }
+.static-size { color: var(--faint); white-space: nowrap; }
+
+.pointer-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 4;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.pointer-line {
+  fill: none;
+  stroke: var(--blue);
+  stroke-width: 2;
+  opacity: 0.9;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 11px 18px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.legend-item { display: inline-flex; gap: 6px; align-items: center; }
+.swatch { width: 12px; height: 12px; border-radius: 2px; border: 1px solid currentColor; }
+.swatch.stack { color: var(--green); background: var(--green-soft); }
+.swatch.borrow { color: var(--blue); background: var(--blue-soft); }
+.swatch.heap { color: var(--purple); background: var(--purple-soft); }
+.swatch.static { color: var(--orange); background: var(--orange-soft); }
+
+/* Supporting explanation */
+.two-col {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.explain-block {
+  min-width: 0;
+  border-top: 2px solid var(--border);
+  padding-top: 12px;
+}
+
+.explain-block h3 { margin-top: 0; }
+.explain-block ul { padding-left: 20px; color: var(--muted); font-size: 0.86rem; }
+.explain-block li { margin: 7px 0; }
+.explain-block strong { color: var(--text); font-weight: 500; }
+
+.layout-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+  font-size: 0.8rem;
+}
+
+.layout-table th,
+.layout-table td {
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.layout-table th { color: var(--blue); background: var(--border-soft); font-weight: 500; }
+.layout-table td { background: var(--panel); }
+.layout-table tr:nth-child(even) td { background: var(--panel-strong); }
+.layout-table td:first-child { color: var(--orange); font-family: var(--mono); }
+
+.flow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  counter-reset: flow;
+}
+
+.flow-item {
+  position: relative;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  font-size: 0.78rem;
+}
+
+.flow-item::after {
+  content: "\2192";
+  position: absolute;
+  right: -11px;
+  top: 50%;
+  z-index: 2;
+  color: var(--blue);
+  background: var(--bg);
+  padding: 0 3px;
+}
+
+.flow-item:last-child::after { display: none; }
+.flow-code { display: block; color: var(--purple); font: 500 0.75rem var(--mono); margin-bottom: 5px; }
+.flow-text { color: var(--muted); }
+
+.footer {
+  margin-top: 52px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border-soft);
+  color: var(--faint);
+  text-align: center;
+  font: 0.72rem var(--mono);
+}
+
+@media (max-width: 900px) {
+  .source-grid, .memory-stage, .two-col { grid-template-columns: 1fr; }
+  .memory-stage { min-height: 0; }
+  .static-strip { grid-column: 1; }
+  .step-tabs { overflow-x: auto; grid-template-columns: repeat(5, minmax(108px, 1fr)); padding-bottom: 3px; }
+  .flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .flow-item:nth-child(2)::after { display: none; }
+}
+
+@media (max-width: 620px) {
+  body { padding: 24px 12px 48px; }
+  h2 { margin-top: 38px; }
+  .runtime-toolbar { grid-template-columns: 36px minmax(0, 1fr) 36px; padding: 10px; }
+  .nav-btn { width: 36px; height: 36px; }
+  .step-tabs {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    overflow: visible;
+    padding-bottom: 0;
+  }
+  .step-tab { min-height: 52px; padding: 4px 2px; overflow-wrap: anywhere; }
+  .tab-label { display: none; }
+  .tab-short { display: block; }
+  .step-summary { grid-template-columns: 1fr; gap: 5px; }
+  .stack-row { grid-template-columns: minmax(82px, 0.75fr) minmax(120px, 1.25fr) 38px; }
+  .stack-cell.type, .stack-cell.size { display: none; }
+  .frame-title { flex-direction: column; gap: 2px; }
+  .frame-sub { text-align: left; }
+  .static-strip { grid-template-columns: 1fr; gap: 3px; }
+  .flow { grid-template-columns: 1fr; }
+  .flow-item::after { display: none; }
+  .layout-table { font-size: 0.75rem; }
+  .layout-table th, .layout-table td { padding: 7px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .stack-frame { transition: none; }
+  .stack-frame.entering { animation: none; }
+}
+</style>
+</head>
+<body>
+<main class="container">
+  <h1>Fn 只读借用闭包：运行时内存布局</h1>
+  <p class="subtitle">src/closure_02_traits.rs · 64 位平台示意 · Stack / Heap / .rodata</p>
+
+  <section aria-labelledby="source-title">
+    <h2 id="source-title">一、先看结论</h2>
+    <div class="source-grid">
+<pre class="code-block" aria-label="Fn 只读借用源代码"><code><span class="kw">let</span> n = <span class="num">30</span>;
+
+<span class="kw">let</span> readonly = || {
+  <span class="kw">let</span> temp = n;
+  <span class="mac">println!</span>(<span class="str">"temp：{temp}, n: {n}"</span>);
+};
+
+<span class="fn">run_fn</span>(readonly);
+
+<span class="kw">fn</span> <span class="fn">run_fn</span>(f: <span class="kw">impl</span> <span class="ty">Fn</span>()) {
+  <span class="fn">f</span>()
+}</code></pre>
+
+      <aside class="conclusion" aria-label="内存布局核心结论">
+        <div class="conclusion-title">readonly 的本体</div>
+        <div class="fact">
+          <span class="fact-label">栈上大小</span>
+          <span class="fact-value"><strong>8 B</strong>（一个 <code>&amp;i32</code>）</span>
+        </div>
+        <div class="fact">
+          <span class="fact-label">捕获内容</span>
+          <span class="fact-value"><code>{ n: &amp;n }</code></span>
+        </div>
+        <div class="fact">
+          <span class="fact-label">指向</span>
+          <span class="fact-value"><code>demo</code> 栈帧中的 <code>n = 30</code></span>
+        </div>
+        <div class="fact">
+          <span class="fact-label">堆分配</span>
+          <span class="fact-value"><strong>0 B</strong>（此捕获本身）</span>
+        </div>
+        <div class="fact">
+          <span class="fact-label">Trait</span>
+          <span class="fact-value"><code>Fn</code> 同时也满足 <code>FnMut</code> / <code>FnOnce</code></span>
+        </div>
+      </aside>
+    </div>
+
+    <div class="callout">
+      <strong>不是把 30 塞进闭包。</strong>
+      <code>temp = n</code> 会在调用时从 <code>&amp;n</code> 解引用，再利用 <code>i32: Copy</code> 得到一份新的 <code>30</code>。创建闭包时只捕获共享引用。
+    </div>
+  </section>
+
+  <section aria-labelledby="runtime-title">
+    <h2 id="runtime-title">二、逐步看运行时栈空间</h2>
+
+    <div class="runtime-tool" id="runtime-tool">
+      <div class="runtime-toolbar" aria-label="运行步骤控制">
+        <button class="nav-btn" id="prev-step" type="button" aria-label="上一步" title="上一步">‹</button>
+        <div class="step-tabs" role="tablist" aria-label="运行时步骤">
+          <button class="step-tab" type="button" role="tab" data-step="0" aria-selected="true" aria-label="1 进入 demo"><span class="tab-label">1 进入 demo</span><span class="tab-short">1 准备</span></button>
+          <button class="step-tab" type="button" role="tab" data-step="1" aria-selected="false" aria-label="2 创建 readonly"><span class="tab-label">2 创建 readonly</span><span class="tab-short">2 捕获</span></button>
+          <button class="step-tab" type="button" role="tab" data-step="2" aria-selected="false" aria-label="3 进入 run_fn"><span class="tab-label">3 进入 run_fn</span><span class="tab-short">3 传参</span></button>
+          <button class="step-tab" type="button" role="tab" data-step="3" aria-selected="false" aria-label="4 调用闭包"><span class="tab-label">4 调用闭包</span><span class="tab-short">4 调用</span></button>
+          <button class="step-tab" type="button" role="tab" data-step="4" aria-selected="false" aria-label="5 返回 demo"><span class="tab-label">5 返回 demo</span><span class="tab-short">5 返回</span></button>
+        </div>
+        <button class="nav-btn" id="next-step" type="button" aria-label="下一步" title="下一步">›</button>
+      </div>
+
+      <div class="step-summary" aria-live="polite">
+        <div>
+          <div class="step-kicker" id="step-kicker">STEP 1 / 5</div>
+          <div class="step-title" id="step-title">进入 demo，在栈上创建 n</div>
+          <div class="step-detail" id="step-detail">n 是 i32，直接存在 demo 栈帧中，不需要堆内存。</div>
+        </div>
+        <div class="live-badge"><span class="live-dot"></span><span id="frame-count">1 个活动栈帧</span></div>
+      </div>
+
+      <div class="memory-stage" id="memory-stage">
+        <section class="memory-zone stack-zone" aria-label="运行时栈空间">
+          <div class="zone-header">
+            <span class="zone-title">栈 STACK</span>
+            <span class="zone-meta">新调用帧向低地址方向增长</span>
+          </div>
+          <div class="address-axis"><span>高地址</span><span>→ 低地址</span></div>
+
+          <div class="frames">
+            <div class="stack-frame" id="frame-demo" data-from="0">
+              <div class="frame-title">
+                <span>demo() 栈帧</span>
+                <span class="frame-sub">外层调用者，存活至 demo 返回</span>
+              </div>
+              <div class="stack-row">
+                <div class="stack-cell field">n</div>
+                <div class="stack-cell value target" id="value-n">30 <span class="cm">@ 0x…7f30</span></div>
+                <div class="stack-cell link-lane" aria-hidden="true"></div>
+                <div class="stack-cell type">i32</div>
+                <div class="stack-cell size">4 B</div>
+              </div>
+              <div class="stack-row" id="row-readonly" data-from="1">
+                <div class="stack-cell field">readonly</div>
+                <div class="stack-cell value pointer" id="ptr-readonly">{ n: 0x…7f30 }</div>
+                <div class="stack-cell link-lane" aria-hidden="true"></div>
+                <div class="stack-cell type">Closure { n: &amp;i32 }</div>
+                <div class="stack-cell size">8 B</div>
+              </div>
+              <div class="frame-note" id="demo-note">MIR 局部变量 <code>_1</code>：此时只有 <code>n</code> 可见。</div>
+            </div>
+
+            <div class="stack-frame future" id="frame-runfn" data-from="2">
+              <div class="frame-title">
+                <span>run_fn&lt;Closure&gt;() 栈帧</span>
+                <span class="frame-sub">泛型单态化后的调用</span>
+              </div>
+              <div class="stack-row">
+                <div class="stack-cell field">f</div>
+                <div class="stack-cell value pointer" id="ptr-f">{ n: 0x…7f30 }</div>
+                <div class="stack-cell link-lane" aria-hidden="true"></div>
+                <div class="stack-cell type">Closure { n: &amp;i32 }</div>
+                <div class="stack-cell size">8 B</div>
+              </div>
+              <div class="stack-row" id="row-self-ref" data-from="3">
+                <div class="stack-cell field">&amp;f</div>
+                <div class="stack-cell value pointer" id="ptr-self">&amp;Closure</div>
+                <div class="stack-cell link-lane" aria-hidden="true"></div>
+                <div class="stack-cell type">Fn::call 的 &amp;self</div>
+                <div class="stack-cell size">8 B*</div>
+              </div>
+              <div class="frame-note"><code>run_fn(readonly)</code> 按值传参。本例闭包只含 <code>&amp;i32</code>，所以闭包类型也是 <code>Copy</code>，MIR 显示 <code>copy _2</code>。</div>
+            </div>
+
+            <div class="stack-frame future" id="frame-call" data-from="3">
+              <div class="frame-title">
+                <span>demo::{closure#0}() 调用帧</span>
+                <span class="frame-sub">Fn::call(&amp;f, ()) 进入闭包体</span>
+              </div>
+              <div class="stack-row">
+                <div class="stack-cell field">_1 / self</div>
+                <div class="stack-cell value pointer" id="ptr-call-self">&amp;f</div>
+                <div class="stack-cell link-lane" aria-hidden="true"></div>
+                <div class="stack-cell type">&amp;Closure</div>
+                <div class="stack-cell size">8 B*</div>
+              </div>
+              <div class="stack-row">
+                <div class="stack-cell field">temp</div>
+                <div class="stack-cell value">30</div>
+                <div class="stack-cell link-lane" aria-hidden="true"></div>
+                <div class="stack-cell type">i32 (Copy)</div>
+                <div class="stack-cell size">4 B</div>
+              </div>
+              <div class="stack-row">
+                <div class="stack-cell field">fmt 临时值</div>
+                <div class="stack-cell value">&amp;temp, &amp;n, Arguments</div>
+                <div class="stack-cell link-lane" aria-hidden="true"></div>
+                <div class="stack-cell type">编译器生成</div>
+                <div class="stack-cell size">不固定</div>
+              </div>
+              <div class="frame-note"><code>temp = copy *self.n</code>。标有 <code>*</code> 的调用参数可由 ABI 放在寄存器，不保证必然落到物理栈槽。</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="memory-zone heap-zone" aria-label="堆空间">
+          <div class="zone-header">
+            <span class="zone-title">堆 HEAP</span>
+            <span class="zone-meta">此闭包捕获本身</span>
+          </div>
+          <div class="heap-empty">
+            <div>
+              <div class="heap-zero">0 B</div>
+              <div class="heap-copy">没有 <code>Box</code>、<code>String</code>、<code>Vec</code> 或其他由这段用户数据触发的堆分配。</div>
+            </div>
+          </div>
+          <div class="not-heap">
+            <span><code>n</code> 不在堆上</span>
+            <span><code>readonly</code> 不在堆上</span>
+            <span><code>temp</code> 不在堆上</span>
+          </div>
+        </section>
+
+        <div class="static-strip" aria-label="只读数据段">
+          <span class="static-label">.rodata</span>
+          <span class="static-value">"temp：{temp}, n: {n}" 的格式化字面量 / 格式化片段</span>
+          <span class="static-size">静态生命期</span>
+        </div>
+
+        <svg class="pointer-layer" id="pointer-layer" aria-hidden="true">
+          <defs>
+            <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+              <path d="M0,0 L8,3 L0,6 Z" fill="var(--blue)"></path>
+            </marker>
+          </defs>
+          <g id="pointer-paths"></g>
+        </svg>
+      </div>
+
+      <div class="legend" aria-label="图例">
+        <span class="legend-item"><span class="swatch stack"></span>活动栈帧</span>
+        <span class="legend-item"><span class="swatch borrow"></span>共享引用 <code>&amp;T</code></span>
+        <span class="legend-item"><span class="swatch heap"></span>堆空间</span>
+        <span class="legend-item"><span class="swatch static"></span>只读静态数据</span>
+      </div>
+    </div>
+
+    <div class="callout warning">
+      <strong>这是未优化的逻辑栈帧模型。</strong>
+      真实地址每次运行都可不同；release 优化可以内联 <code>run_fn</code> 和闭包，把 <code>30</code> 常量传播，甚至不为 <code>readonly</code> / <code>temp</code> 保留可见的物理栈槽。借用关系与语义不变。
+    </div>
+  </section>
+
+  <section aria-labelledby="desugar-title">
+    <h2 id="desugar-title">三、闭包在栈上究竟存了什么</h2>
+
+    <div class="two-col">
+      <div class="explain-block">
+        <h3>概念上的结构体</h3>
+<pre class="code-block"><code><span class="cm">// 编译器生成的匿名类型（伪代码）</span>
+<span class="kw">struct</span> <span class="ty">Readonly</span>&lt;<span class="life">'a</span>&gt; {
+  n: &amp;<span class="life">'a</span> <span class="ty">i32</span>,
+}
+
+<span class="kw">let</span> readonly = <span class="ty">Readonly</span> { n: &amp;n };
+
+<span class="cm">// Fn 调用不需要修改闭包对象</span>
+<span class="fn">Fn::call</span>(&amp;readonly, ());</code></pre>
+      </div>
+
+      <div class="explain-block">
+        <h3>为什么是 Fn</h3>
+        <ul>
+          <li><strong>捕获时：</strong>只创建 <code>&amp;n</code>，没有修改或移走 <code>n</code>。</li>
+          <li><strong>调用时：</strong><code>Fn::call</code> 只需要 <code>&amp;self</code>，同一个闭包可重复调用。</li>
+          <li><strong>复制时：</strong>捕获字段 <code>&amp;i32</code> 是 <code>Copy</code>，因此该闭包值也可 <code>Copy</code>。</li>
+          <li><strong>生命期：</strong><code>readonly</code> 不能比被借用的 <code>n</code> 活得更久。</li>
+        </ul>
+      </div>
+    </div>
+
+    <table class="layout-table">
+      <thead>
+        <tr><th>对象</th><th>逻辑位置</th><th>64 位示意大小</th><th>内容</th><th>何时消失</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>n</td><td><code>demo</code> 栈帧</td><td>4 B</td><td><code>i32 = 30</code></td><td><code>demo</code> 返回</td></tr>
+        <tr><td>readonly</td><td><code>demo</code> 栈帧</td><td>8 B</td><td>指向 <code>n</code> 的 <code>&amp;i32</code></td><td><code>demo</code> 返回</td></tr>
+        <tr><td>f</td><td><code>run_fn</code> 栈帧</td><td>8 B</td><td><code>readonly</code> 的 Copy 传参值</td><td><code>run_fn</code> 返回</td></tr>
+        <tr><td>temp</td><td>闭包调用帧</td><td>4 B</td><td>从 <code>*f.n</code> 复制得到的 <code>30</code></td><td>闭包调用返回</td></tr>
+        <tr><td>格式字面量</td><td><code>.rodata</code></td><td>编译产物决定</td><td>只读字节</td><td>进程结束</td></tr>
+        <tr><td>用户堆数据</td><td>堆</td><td>0 B</td><td>无</td><td>无需释放</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section aria-labelledby="mir-title">
+    <h2 id="mir-title">四、MIR 证据：不是猜测</h2>
+    <p>使用当前源文件生成的 MIR 会直接显示捕获和调用方式：</p>
+
+<pre class="code-block"><code><span class="cm">// demo()</span>
+_1 = const <span class="num">30_i32</span>;                     <span class="cm">// n</span>
+_3 = &amp;_1;                               <span class="cm">// 创建 &amp;n</span>
+_2 = {closure} { n: move _3 };          <span class="cm">// readonly 内只存一个引用</span>
+_4 = <span class="fn">run_fn</span>::&lt;{closure}&gt;(copy _2);  <span class="cm">// Copy 闭包值到参数 f</span>
+
+<span class="cm">// demo::{closure#0}(_1: &amp;Closure)</span>
+_12 = copy ((*_1).0: &amp;<span class="ty">i32</span>);          <span class="cm">// 读取 self.n</span>
+_2 = copy (*_12);                       <span class="cm">// temp = *self.n = 30</span></code></pre>
+
+    <div class="flow" aria-label="从源代码到运行时的读取链路">
+      <div class="flow-item"><span class="flow-code">|| { ... n ... }</span><span class="flow-text">闭包体只读 <code>n</code></span></div>
+      <div class="flow-item"><span class="flow-code">readonly.n = &amp;n</span><span class="flow-text">创建共享引用捕获</span></div>
+      <div class="flow-item"><span class="flow-code">Fn::call(&amp;f, ())</span><span class="flow-text">通过 <code>&amp;self</code> 调用</span></div>
+      <div class="flow-item"><span class="flow-code">temp = *self.n</span><span class="flow-text">解引用后 Copy 出 <code>30</code></span></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="boundary-title">
+    <h2 id="boundary-title">五、几个容易混淆的边界</h2>
+    <div class="two-col">
+      <div class="explain-block">
+        <h3>println! 把字符串放到堆上吗？</h3>
+        <p><strong>这段代码不会构造 <code>String</code>。</strong>格式字面量在 <code>.rodata</code>，<code>format_args!</code> 生成的参数视图是临时值，通常在栈或寄存器中。标准输出设施可有进程级内部状态，但它不是 <code>readonly</code> 闭包所有的堆数据。</p>
+      </div>
+      <div class="explain-block">
+        <h3>指针和被指向的值都在栈上？</h3>
+        <p><strong>对，本例是栈指向栈。</strong><code>readonly.n</code> 是一个存在栈上的引用值，它指向同一个 <code>demo</code> 栈帧里的 <code>n</code>。引用并不等于“指向堆”，它可以指向栈、堆或静态区。</p>
+      </div>
+    </div>
+  </section>
+
+  <footer class="footer">Rust Fn 只读借用内存布局 · 对应 src/closure_02_traits.rs · 2026-08-03</footer>
+</main>
+
+<script>
+(() => {
+  const tool = document.getElementById('runtime-tool');
+  const stage = document.getElementById('memory-stage');
+  const tabs = Array.from(tool.querySelectorAll('.step-tab'));
+  const prev = document.getElementById('prev-step');
+  const next = document.getElementById('next-step');
+  const kicker = document.getElementById('step-kicker');
+  const title = document.getElementById('step-title');
+  const detail = document.getElementById('step-detail');
+  const frameCount = document.getElementById('frame-count');
+  const demoNote = document.getElementById('demo-note');
+  const rowReadonly = document.getElementById('row-readonly');
+  const rowSelfRef = document.getElementById('row-self-ref');
+  const frameRunFn = document.getElementById('frame-runfn');
+  const frameCall = document.getElementById('frame-call');
+  const pathsGroup = document.getElementById('pointer-paths');
+
+  const steps = [
+    {
+      title: '进入 demo，在栈上创建 n',
+      detail: 'n 是 i32，直接存在 demo 栈帧中，不需要堆内存。',
+      frames: '1 个活动栈帧'
+    },
+    {
+      title: '创建 readonly：闭包对象保存 &n',
+      detail: '新增的 8 B 闭包对象只有一个字段，指回同一栈帧中的 n。',
+      frames: '1 个活动栈帧'
+    },
+    {
+      title: '进入 run_fn：f 按值接收闭包',
+      detail: '闭包只含 Copy 的共享引用，因此 MIR 将 readonly copy 给 f；两份都指向同一个 n。',
+      frames: '2 个活动栈帧'
+    },
+    {
+      title: 'Fn::call(&f, ()) 进入闭包体',
+      detail: '闭包通过 &self 读取捕获字段，temp 是对 *self.n 的 i32 Copy。',
+      frames: '3 个活动栈帧'
+    },
+    {
+      title: '闭包和 run_fn 返回，demo 继续',
+      detail: 'temp、格式化临时值和 f 随各自栈帧消失；n 与 readonly 仍在 demo 栈帧中。',
+      frames: '1 个活动栈帧'
+    }
+  ];
+
+  let current = 0;
+
+  function visibleAt(element, step) {
+    const from = Number(element.dataset.from || 0);
+    return step >= from;
+  }
+
+  function setFrameVisible(frame, visible, animate) {
+    frame.classList.toggle('future', !visible);
+    frame.classList.toggle('entering', visible && animate);
+    if (visible && animate) {
+      window.setTimeout(() => frame.classList.remove('entering'), 260);
+    }
+  }
+
+  function createSvgElement(name, attrs) {
+    const node = document.createElementNS('http://www.w3.org/2000/svg', name);
+    Object.entries(attrs).forEach(([key, value]) => node.setAttribute(key, value));
+    return node;
+  }
+
+  function drawPointer(sourceId, targetId) {
+    const source = document.getElementById(sourceId);
+    const target = document.getElementById(targetId);
+    if (!source || !target || source.offsetParent === null || target.offsetParent === null) return;
+
+    const stageRect = stage.getBoundingClientRect();
+    const sourceRect = source.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    const startX = sourceRect.right - stageRect.left - 2;
+    const startY = sourceRect.top - stageRect.top + sourceRect.height / 2;
+    const endX = targetRect.right - stageRect.left + 2;
+    const endY = targetRect.top - stageRect.top + targetRect.height / 2;
+    const bendX = Math.max(sourceRect.right, targetRect.right) - stageRect.left + 23;
+    const path = createSvgElement('path', {
+      d: `M ${startX} ${startY} H ${bendX} V ${endY} H ${endX}`,
+      class: 'pointer-line',
+      'marker-end': 'url(#arrowhead)'
+    });
+    pathsGroup.appendChild(path);
+  }
+
+  function drawPointers() {
+    pathsGroup.replaceChildren();
+    if (current >= 1) drawPointer('ptr-readonly', 'value-n');
+    if (current >= 2 && current <= 3) drawPointer('ptr-f', 'value-n');
+    if (current === 3) drawPointer('ptr-call-self', 'ptr-f');
+  }
+
+  function render(step, animate = true) {
+    current = Math.max(0, Math.min(steps.length - 1, step));
+    const state = steps[current];
+
+    tabs.forEach((tab, index) => tab.setAttribute('aria-selected', String(index === current)));
+    prev.disabled = current === 0;
+    next.disabled = current === steps.length - 1;
+    kicker.textContent = `STEP ${current + 1} / ${steps.length}`;
+    title.textContent = state.title;
+    detail.textContent = state.detail;
+    frameCount.textContent = state.frames;
+
+    rowReadonly.hidden = !visibleAt(rowReadonly, current);
+    rowSelfRef.hidden = !visibleAt(rowSelfRef, current) || current === 4;
+    setFrameVisible(frameRunFn, current >= 2 && current <= 3, animate && current === 2);
+    setFrameVisible(frameCall, current === 3, animate && current === 3);
+
+    const readonlyValue = document.getElementById('ptr-readonly');
+    readonlyValue.classList.toggle('moved-slot', false);
+    if (current === 0) {
+      demoNote.innerHTML = 'MIR 局部变量 <code>_1</code>：此时只有 <code>n</code> 可见。';
+    } else if (current === 4) {
+      demoNote.innerHTML = '<code>run_fn</code> 已返回。因闭包是 <code>Copy</code>，原 <code>readonly</code> 仍是可用的栈上值。';
+    } else {
+      demoNote.innerHTML = '<code>readonly</code> 的唯一捕获字段是 <code>&amp;n</code>；它不拥有 <code>n</code>。';
+    }
+
+    window.requestAnimationFrame(drawPointers);
+  }
+
+  tabs.forEach((tab, index) => tab.addEventListener('click', () => render(index)));
+  prev.addEventListener('click', () => render(current - 1));
+  next.addEventListener('click', () => render(current + 1));
+  window.addEventListener('resize', drawPointers);
+  window.addEventListener('load', drawPointers);
+  render(0, false);
+})();
+</script>
+</body>
+</html>

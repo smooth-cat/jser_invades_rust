@@ -1,35 +1,30 @@
-const a = {
-  name: 'a',
-  b: null
-};
+function return_closure(params) {
+  let n = 0;
+  const closure = () => {
+    n += 1;
+    return n;
+  };
+  n = 10;
+  console.log(n); // 10
+  return closure;
+}
 
-const b = {
-  name: 'b',
-  a: null
-};
-a.b = b;
-b.a = a;
+const add = return_closure();
+console.log(add()); // 11
 
-/**
- * JS 根据 根可达性来释放内存
- * 根节点群包括：globalThis、栈帧中的变量s、等
- * [ globalThis, const a, const b ]: GC Roots
- *  ↓
- * globalThis
- *  ↓
- *  a <-> b
- */
-globalThis.a = a;
-
-
-setTimeout(() => {
-  /**
-   * 释放 a <-> b
-   * [ globalThis ]: GC Roots
-   *  ↓
-   * globalThis  
-   *  
-   *  a <-> b
-   */
-  globalThis.a = undefined;
-}, 1000);
+function mock_rust_fn() {
+  let n = 0;
+  // 模拟 rust 的 FnMut, 用对象捕获数据
+  const closure = {
+    n: n,
+    add() {
+      this.n += 1;
+      return this.n;
+    }
+  };
+  n = 10;
+  console.log('js 模拟 FnMut: ', n);
+  return closure.add.bind(closure);
+}
+const add2 = mock_rust_fn();
+console.log('js 模拟 FnMut: ', add2());

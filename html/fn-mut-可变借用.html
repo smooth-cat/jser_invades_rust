@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rust FnMut 可变借用闭包：运行时内存布局</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+:root {
+  --bg: #0d1117;
+  --panel: #161b22;
+  --panel-2: #1c2129;
+  --surface: #090d12;
+  --border: #30363d;
+  --border-soft: #21262d;
+  --text: #c9d1d9;
+  --muted: #8b949e;
+  --faint: #6e7681;
+  --blue: #58a6ff;
+  --blue-soft: rgba(56, 139, 253, 0.13);
+  --green: #7ee787;
+  --green-soft: rgba(46, 160, 67, 0.13);
+  --purple: #d2a8ff;
+  --purple-soft: rgba(163, 113, 247, 0.13);
+  --orange: #ffa657;
+  --orange-soft: rgba(240, 136, 62, 0.13);
+  --red: #ff7b72;
+  --red-soft: rgba(248, 81, 73, 0.12);
+  --yellow: #e3b341;
+  --mono: "SF Mono", "JetBrains Mono", "Fira Code", Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  line-height: 1.7;
+  padding: 40px 20px 72px;
+}
+
+.container { width: min(1160px, 100%); margin: 0 auto; }
+
+h1 {
+  color: var(--blue);
+  font: 500 clamp(1.5rem, 3vw, 2rem) var(--mono);
+  border-bottom: 1px solid var(--border-soft);
+  padding-bottom: 12px;
+  overflow-wrap: anywhere;
+}
+
+h2 {
+  color: var(--orange);
+  font: 500 1.25rem var(--mono);
+  margin: 48px 0 18px;
+  padding-left: 12px;
+  border-left: 3px solid var(--orange);
+}
+
+h3 {
+  color: #79c0ff;
+  font: 500 1rem var(--mono);
+  margin: 28px 0 12px;
+}
+
+p { margin: 10px 0; }
+code, pre, .mono { font-family: var(--mono); }
+p code, li code, td code, .callout code, .frame-note code {
+  color: #79c0ff;
+  background: var(--border-soft);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
+.subtitle {
+  color: var(--muted);
+  font: 0.88rem var(--mono);
+  margin: 8px 0 32px;
+}
+
+.source-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
+  gap: 18px;
+  align-items: stretch;
+}
+
+.code-block {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 18px;
+  overflow-x: auto;
+  font: 0.82rem/1.8 var(--mono);
+  white-space: pre;
+  tab-size: 2;
+}
+
+.code-block code { font: inherit; color: inherit; }
+.kw { color: var(--red); }
+.ty { color: #79c0ff; }
+.fn { color: var(--purple); }
+.num { color: #79c0ff; }
+.str { color: #a5d6ff; }
+.cm { color: var(--muted); }
+.mac { color: var(--orange); }
+.life { color: var(--yellow); }
+
+.conclusion {
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--green);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 18px;
+  min-width: 0;
+}
+
+.conclusion-title { color: var(--green); font: 500 0.9rem var(--mono); margin-bottom: 10px; }
+.fact { display: grid; grid-template-columns: 78px 1fr; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border-soft); font-size: 0.84rem; }
+.fact:last-child { border-bottom: 0; }
+.fact-label { color: var(--muted); }
+.fact-value { min-width: 0; overflow-wrap: anywhere; }
+.fact-value strong { color: var(--orange); font-weight: 500; }
+
+.callout {
+  margin: 18px 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--blue);
+  border-radius: 6px;
+  background: var(--panel);
+  font-size: 0.88rem;
+}
+
+.callout.warning { border-left-color: var(--yellow); }
+.callout strong { color: var(--orange); font-weight: 500; }
+
+/* Runtime tool */
+.runtime-tool { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.runtime-toolbar {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 40px;
+  gap: 10px;
+  align-items: center;
+  padding: 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-2);
+}
+
+.nav-btn {
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  background: var(--surface);
+  font: 500 1.2rem var(--sans);
+  cursor: pointer;
+}
+
+.nav-btn:hover:not(:disabled) { border-color: var(--blue); color: var(--blue); }
+.nav-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.step-tabs { display: grid; grid-template-columns: repeat(5, minmax(88px, 1fr)); gap: 6px; min-width: 0; }
+.step-tab {
+  min-height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--muted);
+  font: 0.72rem var(--mono);
+  padding: 6px 8px;
+  cursor: pointer;
+  white-space: normal;
+}
+
+.step-tab:hover { border-color: var(--faint); color: var(--text); }
+.step-tab[aria-selected="true"] { background: var(--blue-soft); border-color: var(--blue); color: var(--blue); }
+.tab-short { display: none; }
+
+.step-summary {
+  min-height: 78px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.step-kicker { color: var(--blue); font: 500 0.75rem var(--mono); }
+.step-title { color: var(--text); font: 500 0.98rem var(--mono); }
+.step-detail { color: var(--muted); font-size: 0.82rem; margin-top: 2px; }
+.runtime-status { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--muted);
+  background: var(--surface);
+  font: 0.68rem var(--mono);
+  white-space: nowrap;
+}
+.status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+.status-pill.borrowing { color: var(--blue); border-color: var(--blue); }
+.status-pill.borrowing .status-dot { background: var(--blue); }
+
+.memory-stage {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1.65fr) minmax(300px, 0.78fr);
+  gap: 20px;
+  padding: 18px;
+  background: var(--surface);
+  min-height: 690px;
+}
+
+.memory-zone { position: relative; z-index: 1; min-width: 0; }
+.zone-header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 10px; font-family: var(--mono); }
+.zone-title { font-size: 0.77rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0; }
+.stack-zone .zone-title { color: var(--green); }
+.heap-zone .zone-title { color: var(--purple); }
+.zone-meta { color: var(--faint); font-size: 0.67rem; text-align: right; }
+.address-axis { display: flex; justify-content: space-between; color: var(--faint); font: 0.65rem var(--mono); padding: 0 2px 8px; }
+.frames { display: flex; flex-direction: column; gap: 12px; }
+
+.stack-frame {
+  border: 2px solid var(--green);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--panel);
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+.stack-frame.future { display: none; }
+.stack-frame.entering { animation: frame-in 240ms ease both; }
+@keyframes frame-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+
+.frame-title { display: flex; justify-content: space-between; gap: 12px; background: var(--green-soft); color: var(--green); font: 500 0.76rem var(--mono); padding: 7px 10px; }
+.frame-sub { color: var(--muted); font-weight: 400; text-align: right; }
+
+.stack-row {
+  display: grid;
+  grid-template-columns: minmax(94px, 0.72fr) minmax(96px, 0.72fr) 54px minmax(155px, 1.3fr) 44px;
+  min-height: 40px;
+  border-top: 1px solid var(--border);
+}
+.stack-cell {
+  min-width: 0;
+  padding: 8px 9px;
+  display: flex;
+  align-items: center;
+  border-right: 1px solid var(--border);
+  font: 0.72rem var(--mono);
+  overflow-wrap: anywhere;
+}
+.stack-cell:last-child { border-right: 0; }
+.stack-cell.field { color: #79c0ff; background: var(--surface); font-weight: 500; }
+.stack-cell.type { color: var(--muted); }
+.stack-cell.size { color: var(--faint); justify-content: center; white-space: nowrap; }
+.stack-cell.value { color: var(--orange); position: relative; }
+.stack-cell.value.pointer { color: var(--blue); box-shadow: inset 3px 0 0 var(--blue); }
+.stack-cell.value.heap-pointer { color: var(--orange); box-shadow: inset 3px 0 0 var(--orange); }
+.stack-cell.link-lane { padding: 0; background: var(--surface); }
+.stack-row.borrow-locked .stack-cell { background-color: var(--blue-soft); }
+.stack-row.borrow-locked .stack-cell.field::after { content: "EXCLUSIVE"; color: var(--blue); font-size: 0.57rem; margin-left: 7px; }
+.stack-cell.moved { color: var(--faint); text-decoration: line-through; background: repeating-linear-gradient(135deg, transparent, transparent 6px, rgba(139,148,158,0.07) 6px, rgba(139,148,158,0.07) 12px); }
+.frame-note { border-top: 1px solid var(--border); padding: 8px 10px; color: var(--muted); background: var(--surface); font-size: 0.71rem; }
+
+/* Heap buffer */
+.heap-zone { border: 2px solid var(--purple); border-radius: 6px; padding: 14px; background: var(--purple-soft); align-self: start; }
+.heap-buffer { border: 1px solid var(--purple); border-radius: 6px; overflow: hidden; background: var(--surface); }
+.heap-buffer.growing { box-shadow: 0 0 0 2px var(--orange); }
+.heap-title { display: flex; justify-content: space-between; gap: 10px; padding: 7px 9px; color: var(--purple); background: var(--purple-soft); font: 0.69rem var(--mono); }
+.heap-slots { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); }
+.heap-slot { min-width: 0; min-height: 45px; display: grid; place-items: center; position: relative; border-right: 1px solid var(--border); color: var(--purple); font: 0.76rem var(--mono); }
+.heap-slot:last-child { border-right: 0; }
+.heap-slot .idx { position: absolute; top: 2px; left: 3px; color: var(--faint); font-size: 0.55rem; }
+.heap-slot.free { color: var(--faint); background: var(--surface); }
+.heap-slot.appended { color: var(--green); background: var(--green-soft); }
+.heap-caption { color: var(--muted); font-size: 0.72rem; margin-top: 10px; }
+.allocation-event { margin-top: 12px; padding: 10px; border: 1px dashed var(--orange); border-radius: 5px; background: var(--orange-soft); color: var(--muted); font-size: 0.72rem; }
+.allocation-event strong { color: var(--orange); font-weight: 500; }
+
+.static-strip {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--orange);
+  border-radius: 5px;
+  background: var(--panel);
+  font: 0.72rem var(--mono);
+}
+.static-label { color: var(--orange); }
+.static-value { color: #a5d6ff; min-width: 0; overflow-wrap: anywhere; }
+.static-size { color: var(--faint); white-space: nowrap; }
+
+.pointer-layer { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 4; pointer-events: none; overflow: visible; }
+.pointer-line { fill: none; stroke: var(--blue); stroke-width: 2; opacity: 0.9; }
+.heap-line { stroke: var(--orange); }
+
+.legend { display: flex; flex-wrap: wrap; gap: 14px; padding: 11px 18px; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.72rem; }
+.legend-item { display: inline-flex; gap: 6px; align-items: center; }
+.swatch { width: 12px; height: 12px; border-radius: 2px; border: 1px solid currentColor; }
+.swatch.stack { color: var(--green); background: var(--green-soft); }
+.swatch.borrow { color: var(--blue); background: var(--blue-soft); }
+.swatch.heap { color: var(--purple); background: var(--purple-soft); }
+.swatch.ptr { color: var(--orange); background: var(--orange-soft); }
+
+/* Explanation */
+.two-col { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.explain-block { min-width: 0; border-top: 2px solid var(--border); padding-top: 12px; }
+.explain-block h3 { margin-top: 0; }
+.explain-block ul { padding-left: 20px; color: var(--muted); font-size: 0.86rem; }
+.explain-block li { margin: 7px 0; }
+.explain-block strong, .explain-block p strong { color: var(--text); font-weight: 500; }
+
+.layout-table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 0.8rem; }
+.layout-table th, .layout-table td { padding: 9px 11px; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+.layout-table th { color: var(--blue); background: var(--border-soft); font-weight: 500; }
+.layout-table td { background: var(--panel); }
+.layout-table tr:nth-child(even) td { background: var(--panel-2); }
+.layout-table td:first-child { color: var(--orange); font-family: var(--mono); }
+
+.flow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.flow-item { position: relative; min-width: 0; padding: 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); font-size: 0.78rem; }
+.flow-item::after { content: "\2192"; position: absolute; right: -11px; top: 50%; z-index: 2; color: var(--blue); background: var(--bg); padding: 0 3px; }
+.flow-item:last-child::after { display: none; }
+.flow-code { display: block; color: var(--purple); font: 500 0.73rem var(--mono); margin-bottom: 5px; }
+.flow-text { color: var(--muted); }
+
+.footer { margin-top: 52px; padding-top: 18px; border-top: 1px solid var(--border-soft); color: var(--faint); text-align: center; font: 0.72rem var(--mono); }
+
+@media (max-width: 920px) {
+  .source-grid, .memory-stage, .two-col { grid-template-columns: 1fr; }
+  .memory-stage { min-height: 0; }
+  .static-strip { grid-column: 1; }
+  .step-tabs { overflow-x: auto; grid-template-columns: repeat(5, minmax(108px, 1fr)); padding-bottom: 3px; }
+  .flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .flow-item:nth-child(2)::after { display: none; }
+}
+
+@media (max-width: 620px) {
+  body { padding: 24px 12px 48px; }
+  h2 { margin-top: 38px; }
+  .runtime-toolbar { grid-template-columns: 36px minmax(0, 1fr) 36px; padding: 10px; }
+  .nav-btn { width: 36px; height: 36px; }
+  .step-tabs { grid-template-columns: repeat(5, minmax(0, 1fr)); overflow: visible; padding-bottom: 0; }
+  .step-tab { min-height: 52px; padding: 4px 2px; overflow-wrap: anywhere; }
+  .tab-label { display: none; }
+  .tab-short { display: block; }
+  .step-summary { grid-template-columns: 1fr; gap: 7px; }
+  .runtime-status { justify-content: flex-start; }
+  .stack-row { grid-template-columns: minmax(82px, 0.76fr) minmax(132px, 1.24fr) 38px; }
+  .stack-cell.type, .stack-cell.size { display: none; }
+  .stack-cell.field { grid-column: 1; }
+  .stack-cell.value { grid-column: 2; }
+  .stack-cell.link-lane { grid-column: 3; }
+  .stack-row.borrow-locked .stack-cell.field::after { display: none; }
+  .frame-title { flex-direction: column; gap: 2px; }
+  .frame-sub { text-align: left; }
+  .heap-slots { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .heap-slot:nth-child(5) { border-right: 0; }
+  .heap-slot:nth-child(n+6) { border-top: 1px solid var(--border); }
+  .static-strip { grid-template-columns: 1fr; gap: 3px; }
+  .flow { grid-template-columns: 1fr; }
+  .flow-item::after { display: none; }
+  .layout-table { font-size: 0.74rem; }
+  .layout-table th, .layout-table td { padding: 7px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .stack-frame { transition: none; }
+  .stack-frame.entering { animation: none; }
+}
+</style>
+</head>
+<body>
+<main class="container">
+  <h1>FnMut 可变借用闭包：运行时内存布局</h1>
+  <p class="subtitle">src/closure_02_traits.rs · 64 位平台示意 · Stack / Heap / .rodata</p>
+
+  <section aria-labelledby="source-title">
+    <h2 id="source-title">一、先看结论</h2>
+    <div class="source-grid">
+<pre class="code-block" aria-label="FnMut 可变借用源代码"><code><span class="kw">let mut</span> value = <span class="ty">String</span>::<span class="fn">from</span>(<span class="str">"js"</span>);
+
+<span class="kw">let</span> mutable = || {
+  value.<span class="fn">push_str</span>(<span class="str">" is good"</span>);
+};
+
+<span class="fn">run_mut</span>(mutable);
+<span class="mac">println!</span>(<span class="str">"value：{value}"</span>);
+
+<span class="kw">fn</span> <span class="fn">run_mut</span>(<span class="kw">mut</span> f: <span class="kw">impl</span> <span class="ty">FnMut</span>()) {
+  <span class="fn">f</span>()
+}</code></pre>
+
+      <aside class="conclusion" aria-label="FnMut 内存布局核心结论">
+        <div class="conclusion-title">mutable 的本体</div>
+        <div class="fact"><span class="fact-label">闭包栈大小</span><span class="fact-value"><strong>8 B</strong>（一个 <code>&amp;mut String</code>）</span></div>
+        <div class="fact"><span class="fact-label">捕获内容</span><span class="fact-value"><code>{ value: &amp;mut value }</code></span></div>
+        <div class="fact"><span class="fact-label">第一层指向</span><span class="fact-value"><code>demo</code> 栈帧的 <code>String</code> 头部</span></div>
+        <div class="fact"><span class="fact-label">第二层指向</span><span class="fact-value"><code>String.ptr</code> 指向堆字节</span></div>
+        <div class="fact"><span class="fact-label">调用接收者</span><span class="fact-value"><code>FnMut::call_mut(&amp;mut self, ())</code></span></div>
+        <div class="fact"><span class="fact-label">Trait 层级</span><span class="fact-value">实现 <code>FnMut</code> / <code>FnOnce</code>，不实现 <code>Fn</code></span></div>
+      </aside>
+    </div>
+
+    <div class="callout">
+      <strong>闭包不直接保存堆指针。</strong>
+      它保存的是指向整个 <code>String</code> 头部的 <code>&amp;mut String</code>。闭包调用 <code>push_str</code> 时，才经由这个独占引用修改头部的 <code>ptr / len / cap</code> 并写入堆缓冲区。
+    </div>
+  </section>
+
+  <section aria-labelledby="runtime-title">
+    <h2 id="runtime-title">二、逐步看栈、堆和独占借用</h2>
+
+    <div class="runtime-tool" id="runtime-tool">
+      <div class="runtime-toolbar" aria-label="运行步骤控制">
+        <button class="nav-btn" id="prev-step" type="button" aria-label="上一步" title="上一步">‹</button>
+        <div class="step-tabs" role="tablist" aria-label="FnMut 运行时步骤">
+          <button class="step-tab" type="button" role="tab" data-step="0" aria-selected="true" aria-label="1 创建 String"><span class="tab-label">1 创建 String</span><span class="tab-short">1 准备</span></button>
+          <button class="step-tab" type="button" role="tab" data-step="1" aria-selected="false" aria-label="2 创建 mutable"><span class="tab-label">2 创建 mutable</span><span class="tab-short">2 借用</span></button>
+          <button class="step-tab" type="button" role="tab" data-step="2" aria-selected="false" aria-label="3 移入 run_mut"><span class="tab-label">3 移入 run_mut</span><span class="tab-short">3 移入</span></button>
+          <button class="step-tab" type="button" role="tab" data-step="3" aria-selected="false" aria-label="4 调用并追加"><span class="tab-label">4 调用并追加</span><span class="tab-short">4 追加</span></button>
+          <button class="step-tab" type="button" role="tab" data-step="4" aria-selected="false" aria-label="5 返回 demo"><span class="tab-label">5 返回 demo</span><span class="tab-short">5 返回</span></button>
+        </div>
+        <button class="nav-btn" id="next-step" type="button" aria-label="下一步" title="下一步">›</button>
+      </div>
+
+      <div class="step-summary" aria-live="polite">
+        <div>
+          <div class="step-kicker" id="step-kicker">STEP 1 / 5</div>
+          <div class="step-title" id="step-title">创建 value：String 头部在栈，字节在堆</div>
+          <div class="step-detail" id="step-detail">String::from 把 .rodata 中的 "js" 复制到堆上，栈上头部记录 ptr / len / cap。</div>
+        </div>
+        <div class="runtime-status">
+          <span class="status-pill"><span class="status-dot"></span><span id="frame-count">1 个活动栈帧</span></span>
+          <span class="status-pill" id="borrow-pill"><span class="status-dot"></span><span id="borrow-status">未借用</span></span>
+        </div>
+      </div>
+
+      <div class="memory-stage" id="memory-stage">
+        <section class="memory-zone stack-zone" aria-label="FnMut 运行时栈空间">
+          <div class="zone-header"><span class="zone-title">栈 STACK</span><span class="zone-meta">逻辑栈槽，新帧向低地址增长</span></div>
+          <div class="address-axis"><span>高地址</span><span>→ 低地址</span></div>
+
+          <div class="frames">
+            <div class="stack-frame" id="frame-demo">
+              <div class="frame-title"><span>demo() 栈帧</span><span class="frame-sub">value 在 demo 返回时 drop</span></div>
+              <div class="stack-row value-row" id="row-value-ptr">
+                <div class="stack-cell field">value.ptr</div><div class="stack-cell type">NonNull&lt;u8&gt;</div><div class="stack-cell size">8 B</div><div class="stack-cell value heap-pointer" id="value-ptr">0x…a100</div><div class="stack-cell link-lane" aria-hidden="true"></div>
+              </div>
+              <div class="stack-row value-row" id="row-value-len">
+                <div class="stack-cell field">value.len</div><div class="stack-cell type">usize</div><div class="stack-cell size">8 B</div><div class="stack-cell value" id="value-len">2</div><div class="stack-cell link-lane" aria-hidden="true"></div>
+              </div>
+              <div class="stack-row value-row" id="row-value-cap">
+                <div class="stack-cell field">value.cap</div><div class="stack-cell type">usize</div><div class="stack-cell size">8 B</div><div class="stack-cell value" id="value-cap">2</div><div class="stack-cell link-lane" aria-hidden="true"></div>
+              </div>
+              <div class="stack-row" id="row-mutable" hidden>
+                <div class="stack-cell field">mutable</div><div class="stack-cell type">Closure { &amp;mut String }</div><div class="stack-cell size">8 B</div><div class="stack-cell value pointer" id="ptr-mutable">{ value: 0x…7ee0 }</div><div class="stack-cell link-lane" aria-hidden="true"></div>
+              </div>
+              <div class="frame-note" id="demo-note"><code>value</code> 头部共 24 B；示意地址 <code>0x…7ee0</code>。</div>
+            </div>
+
+            <div class="stack-frame future" id="frame-runmut">
+              <div class="frame-title"><span>run_mut&lt;Closure&gt;() 栈帧</span><span class="frame-sub">mutable 按值 move 给参数 f</span></div>
+              <div class="stack-row">
+                <div class="stack-cell field">f</div><div class="stack-cell type">Closure { &amp;mut String }</div><div class="stack-cell size">8 B</div><div class="stack-cell value pointer" id="ptr-f">{ value: 0x…7ee0 }</div><div class="stack-cell link-lane" aria-hidden="true"></div>
+              </div>
+              <div class="stack-row" id="row-mut-self" hidden>
+                <div class="stack-cell field">&amp;mut f</div><div class="stack-cell type">FnMut::call_mut</div><div class="stack-cell size">8 B*</div><div class="stack-cell value pointer" id="ptr-mut-self">&amp;mut Closure</div><div class="stack-cell link-lane" aria-hidden="true"></div>
+              </div>
+              <div class="frame-note"><code>f</code> 不是 <code>Copy</code>。移入后，<code>demo</code> 中的 <code>mutable</code> 不能再使用。</div>
+            </div>
+
+            <div class="stack-frame future" id="frame-call">
+              <div class="frame-title"><span>demo::{closure#1}() 调用帧</span><span class="frame-sub">call_mut(&amp;mut f, ())</span></div>
+              <div class="stack-row">
+                <div class="stack-cell field">_1 / self</div><div class="stack-cell type">&amp;mut Closure</div><div class="stack-cell size">8 B*</div><div class="stack-cell value pointer" id="ptr-call-self">&amp;mut f</div><div class="stack-cell link-lane" aria-hidden="true"></div>
+              </div>
+              <div class="stack-row">
+                <div class="stack-cell field">self.value</div><div class="stack-cell type">&amp;mut String</div><div class="stack-cell size">8 B*</div><div class="stack-cell value pointer">0x…7ee0</div><div class="stack-cell link-lane" aria-hidden="true"></div>
+              </div>
+              <div class="frame-note"><code>String::push_str(self.value, " is good")</code>。标有 <code>*</code> 的 ABI 参数可在寄存器中。</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="memory-zone heap-zone" aria-label="String 堆缓冲区">
+          <div class="zone-header"><span class="zone-title">堆 HEAP</span><span class="zone-meta">String 所有的 UTF-8 字节</span></div>
+          <div class="heap-buffer" id="heap-buffer">
+            <div class="heap-title"><span id="heap-address">0x…a100</span><span id="heap-metrics">len = 2 · cap = 2</span></div>
+            <div class="heap-slots" id="heap-slots">
+              <div class="heap-slot" id="heap-target"><span class="idx">[0]</span>j</div>
+              <div class="heap-slot"><span class="idx">[1]</span>s</div>
+              <div class="heap-slot free" data-appended><span class="idx">[2]</span>—</div>
+              <div class="heap-slot free" data-appended><span class="idx">[3]</span>—</div>
+              <div class="heap-slot free" data-appended><span class="idx">[4]</span>—</div>
+              <div class="heap-slot free" data-appended><span class="idx">[5]</span>—</div>
+              <div class="heap-slot free" data-appended><span class="idx">[6]</span>—</div>
+              <div class="heap-slot free" data-appended><span class="idx">[7]</span>—</div>
+              <div class="heap-slot free" data-appended><span class="idx">[8]</span>—</div>
+              <div class="heap-slot free" data-appended><span class="idx">[9]</span>—</div>
+            </div>
+          </div>
+          <p class="heap-caption" id="heap-caption">初始只有 2 个已初始化字节；索引 [2..10) 此时尚未分配。</p>
+          <div class="allocation-event" id="allocation-event" hidden><strong>reserve / realloc：</strong><span id="allocation-copy">cap 2 → 10，写入 8 个新字节。</span></div>
+        </section>
+
+        <div class="static-strip" aria-label="只读数据段">
+          <span class="static-label">.rodata</span>
+          <span class="static-value">"js" · " is good" · "value：" 的字面量 / 格式化片段</span>
+          <span class="static-size">静态生命期</span>
+        </div>
+
+        <svg class="pointer-layer" id="pointer-layer" aria-hidden="true">
+          <defs>
+            <marker id="borrow-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 Z" fill="var(--blue)"></path></marker>
+            <marker id="heap-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 Z" fill="var(--orange)"></path></marker>
+          </defs>
+          <g id="pointer-paths"></g>
+        </svg>
+      </div>
+
+      <div class="legend" aria-label="图例">
+        <span class="legend-item"><span class="swatch stack"></span>活动栈帧</span>
+        <span class="legend-item"><span class="swatch borrow"></span>独占借用 <code>&amp;mut T</code></span>
+        <span class="legend-item"><span class="swatch ptr"></span><code>String.ptr</code> 指向堆</span>
+        <span class="legend-item"><span class="swatch heap"></span>堆缓冲区</span>
+      </div>
+    </div>
+
+    <div class="callout warning">
+      <strong>地址和物理栈槽只是示意。</strong>
+      当前工具链实测的逻辑容量是 <code>2 → 10</code>，但标准库不把具体扩容策略作为稳定 API。<code>realloc</code> 可能原地扩容，也可能换址并更新 <code>value.ptr</code>。release 还可能内联栈帧，但所有权和借用语义不变。
+    </div>
+  </section>
+
+  <section aria-labelledby="layers-title">
+    <h2 id="layers-title">三、两层指针，三个不同对象</h2>
+    <div class="two-col">
+      <div class="explain-block">
+        <h3>概念上的闭包结构体</h3>
+<pre class="code-block"><code><span class="cm">// 编译器生成的匿名类型（伪代码）</span>
+<span class="kw">struct</span> <span class="ty">Mutable</span>&lt;<span class="life">'a</span>&gt; {
+  value: &amp;<span class="life">'a</span> <span class="kw">mut</span> <span class="ty">String</span>,
+}
+
+<span class="kw">let</span> mutable = <span class="ty">Mutable</span> {
+  value: &amp;<span class="kw">mut</span> value,
+};
+
+<span class="fn">FnMut::call_mut</span>(&amp;<span class="kw">mut</span> mutable, ());</code></pre>
+      </div>
+      <div class="explain-block">
+        <h3>指针链路</h3>
+        <ul>
+          <li><strong><code>mutable</code>：</strong>栈上 8 B，只有一个 <code>&amp;mut String</code> 字段。</li>
+          <li><strong><code>value</code>：</strong>栈上 24 B，是 <code>ptr + len + cap</code> 头部。</li>
+          <li><strong>UTF-8 字节：</strong>在堆上，由 <code>value</code> 拥有并在 drop 时释放。</li>
+          <li><strong>关键区别：</strong>闭包借用的是 <code>String</code> 对象，不是单独借用某个堆字节。</li>
+        </ul>
+      </div>
+    </div>
+
+    <table class="layout-table">
+      <thead><tr><th>对象</th><th>逻辑位置</th><th>64 位示意大小</th><th>内容</th><th>生命期 / 状态</th></tr></thead>
+      <tbody>
+        <tr><td>value</td><td><code>demo</code> 栈帧</td><td>24 B</td><td><code>ptr, len, cap</code></td><td><code>demo</code> 返回时 drop</td></tr>
+        <tr><td>mutable</td><td><code>demo</code> 栈帧</td><td>8 B</td><td><code>&amp;mut value</code></td><td>按值 move 给 <code>run_mut</code></td></tr>
+        <tr><td>f</td><td><code>run_mut</code> 栈帧</td><td>8 B</td><td>拥有该闭包值</td><td><code>run_mut</code> 返回时 drop</td></tr>
+        <tr><td>&amp;mut f</td><td>栈 / ABI 寄存器</td><td>8 B*</td><td><code>call_mut</code> 的接收者</td><td>调用期间</td></tr>
+        <tr><td>buffer</td><td>堆</td><td>2 B → 10 B 逻辑容量</td><td><code>"js" → "js is good"</code></td><td>由 <code>value</code> 所有</td></tr>
+        <tr><td>字面量</td><td><code>.rodata</code></td><td>编译产物决定</td><td><code>"js"</code> / <code>" is good"</code></td><td>进程结束</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section aria-labelledby="mir-title">
+    <h2 id="mir-title">四、MIR 证据：为什么是 FnMut</h2>
+<pre class="code-block"><code><span class="cm">// run_mut(f)</span>
+_2 = &amp;<span class="kw">mut</span> _1;
+_0 = &lt;Closure <span class="kw">as</span> <span class="ty">FnMut</span>&lt;()&gt;&gt;::<span class="fn">call_mut</span>(move _2, ());
+
+<span class="cm">// demo::{closure#1}(_1: &amp;mut Closure)</span>
+_4 = copy ((*_1).0: &amp;<span class="kw">mut</span> <span class="ty">String</span>);
+_3 = const <span class="str">" is good"</span>;
+_2 = <span class="ty">String</span>::<span class="fn">push_str</span>(copy _4, move _3);</code></pre>
+
+    <div class="flow" aria-label="FnMut 可变借用调用链">
+      <div class="flow-item"><span class="flow-code">&amp;mut value</span><span class="flow-text">创建独占借用捕获</span></div>
+      <div class="flow-item"><span class="flow-code">move mutable → f</span><span class="flow-text">闭包值移入 <code>run_mut</code></span></div>
+      <div class="flow-item"><span class="flow-code">call_mut(&amp;mut f)</span><span class="flow-text">可修改闭包所捕获的状态</span></div>
+      <div class="flow-item"><span class="flow-code">push_str(f.value)</span><span class="flow-text">更新头部并写入堆缓冲区</span></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="rules-title">
+    <h2 id="rules-title">五、借用规则与返回后状态</h2>
+    <div class="two-col">
+      <div class="explain-block">
+        <h3>独占借用存活时</h3>
+        <p>创建 <code>mutable</code> 后，<code>value</code> 处于独占借用中。在借用结束前，外部代码不能再直接读或写 <code>value</code>；对它的修改必须经由闭包中的那一个 <code>&amp;mut String</code>。</p>
+      </div>
+      <div class="explain-block">
+        <h3>run_mut 返回后</h3>
+        <p><code>f</code> 被 drop，独占借用结束，因此下一行 <code>println!("value：{value}")</code> 又能借用 <code>value</code>。此时它的内容已是 <code>"js is good"</code>；堆缓冲区仍由 <code>value</code> 拥有，不会随闭包返回而释放。</p>
+      </div>
+    </div>
+  </section>
+
+  <footer class="footer">Rust FnMut 可变借用内存布局 · 对应 src/closure_02_traits.rs · 2026-08-03</footer>
+</main>
+
+<script>
+(() => {
+  const tool = document.getElementById('runtime-tool');
+  const stage = document.getElementById('memory-stage');
+  const tabs = Array.from(tool.querySelectorAll('.step-tab'));
+  const prev = document.getElementById('prev-step');
+  const next = document.getElementById('next-step');
+  const kicker = document.getElementById('step-kicker');
+  const title = document.getElementById('step-title');
+  const detail = document.getElementById('step-detail');
+  const frameCount = document.getElementById('frame-count');
+  const borrowPill = document.getElementById('borrow-pill');
+  const borrowStatus = document.getElementById('borrow-status');
+  const rowMutable = document.getElementById('row-mutable');
+  const rowMutSelf = document.getElementById('row-mut-self');
+  const frameRunMut = document.getElementById('frame-runmut');
+  const frameCall = document.getElementById('frame-call');
+  const demoNote = document.getElementById('demo-note');
+  const valueRows = Array.from(document.querySelectorAll('.value-row'));
+  const valuePtr = document.getElementById('value-ptr');
+  const valueLen = document.getElementById('value-len');
+  const valueCap = document.getElementById('value-cap');
+  const mutableValue = document.getElementById('ptr-mutable');
+  const heapBuffer = document.getElementById('heap-buffer');
+  const heapMetrics = document.getElementById('heap-metrics');
+  const heapCaption = document.getElementById('heap-caption');
+  const allocationEvent = document.getElementById('allocation-event');
+  const appendedSlots = Array.from(document.querySelectorAll('[data-appended]'));
+  const pathsGroup = document.getElementById('pointer-paths');
+
+  const appendedBytes = [' ', 'i', 's', ' ', 'g', 'o', 'o', 'd'];
+  const steps = [
+    {
+      title: '创建 value：String 头部在栈，字节在堆',
+      detail: 'String::from 把 .rodata 中的 "js" 复制到堆上，栈上头部记录 ptr / len / cap。',
+      frames: '1 个活动栈帧', borrow: '未借用'
+    },
+    {
+      title: '创建 mutable：闭包对象保存 &mut value',
+      detail: '栈上新增 8 B 闭包对象；value 此时被独占借用，外部不能直接访问它。',
+      frames: '1 个活动栈帧', borrow: '独占借用中'
+    },
+    {
+      title: '进入 run_mut：mutable 按值 move 给 f',
+      detail: 'FnMut 闭包包含 &mut String，不是 Copy；借用随闭包值一起移入 f。',
+      frames: '2 个活动栈帧', borrow: '独占借用中'
+    },
+    {
+      title: 'call_mut(&mut f, ()) 调用 push_str',
+      detail: 'String 通过独占引用扩容并追加 8 字节；len 2 → 10，cap 2 → 10。',
+      frames: '3 个活动栈帧', borrow: '独占借用中'
+    },
+    {
+      title: 'run_mut 返回：借用结束，value 可再次访问',
+      detail: 'f 被 drop，但 String 仍在 demo 栈帧中拥有堆缓冲区；下一行打印 "js is good"。',
+      frames: '1 个活动栈帧', borrow: '借用已结束'
+    }
+  ];
+
+  let current = 0;
+
+  function setFrameVisible(frame, visible, animate) {
+    frame.classList.toggle('future', !visible);
+    frame.classList.toggle('entering', visible && animate);
+    if (visible && animate) window.setTimeout(() => frame.classList.remove('entering'), 260);
+  }
+
+  function svgNode(name, attrs) {
+    const node = document.createElementNS('http://www.w3.org/2000/svg', name);
+    Object.entries(attrs).forEach(([key, value]) => node.setAttribute(key, value));
+    return node;
+  }
+
+  function drawStackPointer(sourceId, targetId) {
+    const source = document.getElementById(sourceId);
+    const target = document.getElementById(targetId);
+    if (!source || !target || source.getClientRects().length === 0 || target.getClientRects().length === 0) return;
+    const s = source.getBoundingClientRect();
+    const t = target.getBoundingClientRect();
+    const base = stage.getBoundingClientRect();
+    const startX = s.right - base.left - 2;
+    const startY = s.top - base.top + s.height / 2;
+    const endX = t.right - base.left + 2;
+    const endY = t.top - base.top + t.height / 2;
+    const bendX = Math.max(s.right, t.right) - base.left + 22;
+    pathsGroup.appendChild(svgNode('path', {
+      d: `M ${startX} ${startY} H ${bendX} V ${endY} H ${endX}`,
+      class: 'pointer-line', 'marker-end': 'url(#borrow-arrow)'
+    }));
+  }
+
+  function drawHeapPointer() {
+    const source = valuePtr;
+    const target = heapBuffer;
+    if (source.getClientRects().length === 0 || target.getClientRects().length === 0) return;
+    const s = source.getBoundingClientRect();
+    const t = target.getBoundingClientRect();
+    const base = stage.getBoundingClientRect();
+    const stacked = t.top > s.bottom + 40;
+    const startX = s.right - base.left - 2;
+    const startY = s.top - base.top + s.height / 2;
+    const endX = stacked ? t.right - base.left - 5 : t.left - base.left + 5;
+    const endY = t.top - base.top + 20;
+    const bendX = s.right - base.left + 22;
+    pathsGroup.appendChild(svgNode('path', {
+      d: `M ${startX} ${startY} H ${bendX} V ${endY} H ${endX}`,
+      class: 'pointer-line heap-line', 'marker-end': 'url(#heap-arrow)'
+    }));
+  }
+
+  function drawPointers() {
+    pathsGroup.replaceChildren();
+    drawHeapPointer();
+    if (current === 1) drawStackPointer('ptr-mutable', 'value-ptr');
+    if (current === 2 || current === 3) drawStackPointer('ptr-f', 'value-ptr');
+    if (current === 3) drawStackPointer('ptr-call-self', 'ptr-f');
+  }
+
+  function renderHeap(expanded) {
+    valueLen.textContent = expanded ? '10' : '2';
+    valueCap.textContent = expanded ? '10' : '2';
+    heapMetrics.textContent = expanded ? 'len = 10 · cap = 10' : 'len = 2 · cap = 2';
+    heapBuffer.classList.toggle('growing', current === 3);
+    allocationEvent.hidden = !expanded;
+    heapCaption.textContent = expanded
+      ? '堆上 10 个字节全部已初始化，String 的逻辑内容是 "js is good"。'
+      : '初始只有 2 个已初始化字节；索引 [2..10) 只是为展示后续扩容而画出的预览槽。';
+    appendedSlots.forEach((slot, index) => {
+      slot.classList.toggle('free', !expanded);
+      slot.classList.toggle('appended', expanded);
+      const idx = slot.querySelector('.idx');
+      slot.textContent = expanded ? appendedBytes[index] : '—';
+      slot.prepend(idx);
+    });
+  }
+
+  function render(step, animate = true) {
+    current = Math.max(0, Math.min(steps.length - 1, step));
+    const state = steps[current];
+    const borrowing = current >= 1 && current <= 3;
+    const expanded = current >= 3;
+
+    tabs.forEach((tab, index) => tab.setAttribute('aria-selected', String(index === current)));
+    prev.disabled = current === 0;
+    next.disabled = current === steps.length - 1;
+    kicker.textContent = `STEP ${current + 1} / ${steps.length}`;
+    title.textContent = state.title;
+    detail.textContent = state.detail;
+    frameCount.textContent = state.frames;
+    borrowStatus.textContent = state.borrow;
+    borrowPill.classList.toggle('borrowing', borrowing);
+
+    rowMutable.hidden = current === 0;
+    rowMutSelf.hidden = current !== 3;
+    setFrameVisible(frameRunMut, current === 2 || current === 3, animate && current === 2);
+    setFrameVisible(frameCall, current === 3, animate && current === 3);
+    valueRows.forEach(row => row.classList.toggle('borrow-locked', borrowing));
+
+    mutableValue.classList.toggle('moved', current >= 2);
+    mutableValue.classList.toggle('pointer', current === 1);
+    mutableValue.textContent = current >= 2 ? '已 move 给 f' : '{ value: 0x…7ee0 }';
+
+    if (current === 0) {
+      demoNote.innerHTML = '<code>value</code> 头部共 24 B；示意地址 <code>0x…7ee0</code>。';
+    } else if (borrowing) {
+      demoNote.innerHTML = '<code>value</code> 正被独占借用；外部不能同时读或写这个 <code>String</code>。';
+    } else {
+      demoNote.innerHTML = '借用已结束；<code>value</code> 恢复可访问，内容是 <code>"js is good"</code>。';
+    }
+
+    renderHeap(expanded);
+    window.requestAnimationFrame(drawPointers);
+  }
+
+  tabs.forEach((tab, index) => tab.addEventListener('click', () => render(index)));
+  prev.addEventListener('click', () => render(current - 1));
+  next.addEventListener('click', () => render(current + 1));
+  window.addEventListener('resize', drawPointers);
+  window.addEventListener('load', drawPointers);
+  render(0, false);
+})();
+</script>
+</body>
+</html>
