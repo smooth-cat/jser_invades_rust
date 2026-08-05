@@ -1,30 +1,73 @@
-function return_closure(params) {
-  let n = 0;
-  const closure = () => {
-    n += 1;
-    return n;
-  };
-  n = 10;
-  console.log(n); // 10
-  return closure;
-}
-
-const add = return_closure();
-console.log(add()); // 11
-
-function mock_rust_fn() {
-  let n = 0;
-  // 模拟 rust 的 FnMut, 用对象捕获数据
-  const closure = {
-    n: n,
-    add() {
-      this.n += 1;
-      return this.n;
+/*------------------------ 链表 ------------------------*/
+function box_03_linked_list() {
+  class Node {
+    constructor(element) {
+      this.element = element;
+      this.next = null;
     }
-  };
-  n = 10;
-  console.log('js 模拟 FnMut: ', n);
-  return closure.add.bind(closure);
+  }
+  class List {
+    head = null;
+    tail = null;
+    push_head(value) {
+      const node = new Node(value);
+      // 有往前补
+      if (this.head) {
+        node.next = this.head;
+      }
+      // 无作尾巴
+      else {
+        this.tail = node;
+      }
+      this.head = node;
+    }
+
+    push_tail(value) {
+      const node = new Node(value);
+      if (this.tail) {
+        this.tail.next = node;
+      } else {
+        this.head = node;
+      }
+      this.tail = node;
+    }
+
+    static from_iter(arr) {
+      const list = new List();
+      for (const v of arr) {
+        list.push_tail(v);
+      }
+      return list;
+    }
+
+    len() {
+      let pointer = this.head;
+      let count = 0;
+      while (pointer) {
+        count++;
+        pointer = pointer.next;
+      }
+      return count;
+    }
+  }
+
+  List.from_iter([1, 2, 3, 4, 5]);
 }
-const add2 = mock_rust_fn();
-console.log('js 模拟 FnMut: ', add2());
+
+
+function rc_04_cycle_leak() {
+  class Node {
+    constructor(age) {
+      this.age = age;
+      this.next = null;
+    }
+  }
+
+  const node1 = new Node(1);
+  const node2 = new Node(2);
+
+  node1.next = node2;
+  node2.next = node1;
+
+  // 代码运行结束依然释放 roots = [...node1,node2] 被标记为垃圾
+}

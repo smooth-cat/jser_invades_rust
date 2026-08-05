@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rust Box：box_01_basic 内存布局</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+:root {
+  --bg: #0d1117;
+  --panel: #161b22;
+  --panel-2: #1c2129;
+  --surface: #090d12;
+  --border: #30363d;
+  --border-soft: #21262d;
+  --text: #c9d1d9;
+  --muted: #8b949e;
+  --faint: #6e7681;
+  --blue: #58a6ff;
+  --blue-2: #79c0ff;
+  --blue-soft: rgba(56, 139, 253, 0.13);
+  --green: #7ee787;
+  --green-soft: rgba(46, 160, 67, 0.13);
+  --purple: #d2a8ff;
+  --purple-soft: rgba(163, 113, 247, 0.13);
+  --orange: #ffa657;
+  --orange-soft: rgba(240, 136, 62, 0.13);
+  --red: #ff7b72;
+  --red-soft: rgba(248, 81, 73, 0.12);
+  --yellow: #e3b341;
+  --yellow-soft: rgba(227, 179, 65, 0.12);
+  --mono: "SF Mono", "JetBrains Mono", "Fira Code", Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+html { scroll-behavior: smooth; }
+body { background: var(--bg); color: var(--text); font-family: var(--sans); line-height: 1.7; padding: 40px 20px 72px; }
+.container { width: min(1160px, 100%); margin: 0 auto; }
+h1 {
+  color: var(--blue);
+  font: 500 2rem var(--mono);
+  border-bottom: 1px solid var(--border-soft);
+  padding-bottom: 12px;
+  overflow-wrap: anywhere;
+}
+h2 { color: var(--orange); font: 500 1.25rem var(--mono); margin: 48px 0 18px; padding-left: 12px; border-left: 3px solid var(--orange); }
+h3 { color: var(--blue-2); font: 500 1rem var(--mono); margin: 28px 0 12px; }
+p { margin: 10px 0; }
+code, pre, .mono { font-family: var(--mono); }
+p code, li code, td code, .callout code, .frame-note code, .fact-value code, .step-detail code {
+  color: var(--blue-2);
+  background: var(--border-soft);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
+.subtitle { color: var(--muted); font: 0.88rem var(--mono); margin: 8px 0 32px; }
+.source-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(290px, 0.6fr); gap: 18px; align-items: stretch; }
+.code-block {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 0;
+  overflow-x: auto;
+  font: 0.78rem/1.72 var(--mono);
+  white-space: pre;
+  tab-size: 2;
+}
+.code-line { display: block; min-width: max-content; padding: 0 18px; border-left: 3px solid transparent; transition: background 150ms ease, border-color 150ms ease; }
+.code-line.active { color: var(--text); background: var(--blue-soft); border-left-color: var(--blue); }
+.kw { color: var(--red); }
+.ty { color: var(--blue-2); }
+.fn { color: var(--purple); }
+.str { color: #a5d6ff; }
+.cm { color: var(--muted); }
+.mac { color: var(--orange); }
+
+.conclusion { border: 1px solid var(--border); border-top: 3px solid var(--green); border-radius: 8px; background: var(--panel); padding: 18px; min-width: 0; }
+.conclusion-title { color: var(--green); font: 500 0.9rem var(--mono); margin-bottom: 10px; }
+.fact { display: grid; grid-template-columns: 92px 1fr; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border-soft); font-size: 0.84rem; }
+.fact:last-child { border-bottom: 0; }
+.fact-label { color: var(--muted); }
+.fact-value { min-width: 0; overflow-wrap: anywhere; }
+.fact-value strong { color: var(--orange); font-weight: 500; }
+.callout { margin: 18px 0; padding: 14px 16px; border: 1px solid var(--border); border-left: 4px solid var(--blue); border-radius: 6px; background: var(--panel); font-size: 0.88rem; }
+.callout.warning { border-left-color: var(--yellow); }
+.callout strong { color: var(--orange); font-weight: 500; }
+
+/* Runtime stepper */
+.runtime-tool { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.runtime-toolbar { display: grid; grid-template-columns: 40px minmax(0, 1fr) 40px; gap: 10px; align-items: center; padding: 14px; border-bottom: 1px solid var(--border); background: var(--panel-2); }
+.nav-btn { width: 40px; height: 40px; border: 1px solid var(--border); border-radius: 6px; color: var(--text); background: var(--surface); font: 500 1.2rem var(--sans); cursor: pointer; }
+.nav-btn:hover:not(:disabled) { border-color: var(--blue); color: var(--blue); }
+.nav-btn:focus-visible, .step-tab:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.nav-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.step-tabs { display: grid; grid-template-columns: repeat(6, minmax(86px, 1fr)); gap: 6px; min-width: 0; }
+.step-tab { min-height: 42px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); color: var(--muted); font: 0.68rem/1.3 var(--mono); padding: 6px 7px; cursor: pointer; white-space: normal; }
+.step-tab:hover { border-color: var(--faint); color: var(--text); }
+.step-tab[aria-selected="true"] { background: var(--blue-soft); border-color: var(--blue); color: var(--blue); }
+.tab-short { display: none; }
+.step-summary { min-height: 92px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+.step-kicker { color: var(--blue); font: 500 0.75rem var(--mono); }
+.step-title { color: var(--text); font: 500 0.98rem var(--mono); }
+.step-detail { color: var(--muted); font-size: 0.82rem; margin-top: 2px; max-width: 760px; }
+.runtime-status { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.status-pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border: 1px solid var(--border); border-radius: 12px; color: var(--muted); background: var(--surface); font: 0.68rem var(--mono); white-space: nowrap; }
+.status-pill strong { color: var(--text); font-weight: 500; }
+.status-pill.freed { color: var(--green); border-color: var(--green); }
+
+.memory-stage {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(300px, 0.72fr) minmax(500px, 1.28fr);
+  gap: 20px;
+  padding: 18px;
+  background: var(--surface);
+  min-height: 620px;
+}
+.memory-zone { position: relative; z-index: 1; min-width: 0; }
+.zone-header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 10px; font-family: var(--mono); }
+.zone-title { font-size: 0.77rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0; }
+.stack-zone .zone-title { color: var(--green); }
+.heap-zone .zone-title { color: var(--purple); }
+.zone-meta { color: var(--faint); font-size: 0.65rem; text-align: right; }
+.address-axis { display: flex; justify-content: space-between; color: var(--faint); font: 0.65rem var(--mono); padding: 0 2px 8px; }
+
+.stack-frame { border: 2px solid var(--green); border-radius: 6px; overflow: hidden; background: var(--panel); }
+.frame-title { display: flex; justify-content: space-between; gap: 12px; background: var(--green-soft); color: var(--green); font: 500 0.76rem var(--mono); padding: 7px 10px; }
+.frame-sub { color: var(--muted); font-weight: 400; text-align: right; }
+.stack-row { display: grid; grid-template-columns: minmax(78px, 0.55fr) minmax(158px, 1.45fr) 52px; min-height: 67px; border-top: 1px solid var(--border); transition: opacity 160ms ease; }
+.stack-row.inactive { opacity: 0.2; }
+.stack-row.moved { opacity: 0.57; }
+.stack-row.dropped { opacity: 0.48; }
+.stack-cell { min-width: 0; padding: 8px 9px; display: flex; flex-direction: column; justify-content: center; border-right: 1px solid var(--border); font: 0.68rem var(--mono); overflow-wrap: anywhere; }
+.stack-cell:last-child { border-right: 0; }
+.stack-cell.field { color: var(--blue-2); background: var(--surface); font-weight: 500; }
+.stack-cell.value { color: var(--orange); position: relative; }
+.stack-cell.size { color: var(--faint); align-items: center; white-space: nowrap; }
+.stack-row.moved .stack-cell.value { color: var(--red); background: var(--red-soft); }
+.stack-row.dropped .stack-cell.value { color: var(--faint); text-decoration: line-through; background: var(--surface); }
+.cell-sub { color: var(--muted); font-size: 0.6rem; font-weight: 400; margin-top: 2px; }
+.frame-note { border-top: 1px solid var(--border); padding: 9px 10px; color: var(--muted); background: var(--surface); font-size: 0.7rem; min-height: 64px; }
+.anatomy { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 12px; }
+.anatomy-title { color: var(--muted); font: 0.68rem var(--mono); margin-bottom: 8px; }
+.anatomy-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.anatomy-item { min-width: 0; border: 1px solid var(--border); border-radius: 5px; background: var(--panel); overflow: hidden; }
+.anatomy-name { padding: 6px 8px; color: var(--green); background: var(--green-soft); font: 500 0.67rem var(--mono); }
+.anatomy-field { padding: 8px; color: var(--orange); font: 0.64rem var(--mono); overflow-wrap: anywhere; }
+.anatomy-foot { padding: 5px 8px; border-top: 1px solid var(--border); color: var(--faint); font: 0.58rem var(--mono); }
+
+.heap-zone { padding: 0 30px 0 0; }
+.heap-groups { display: flex; flex-direction: column; gap: 14px; }
+.heap-group { display: grid; grid-template-columns: minmax(245px, 1fr) minmax(155px, 0.68fr); gap: 12px; align-items: stretch; }
+.allocation { border: 2px solid var(--purple); border-radius: 6px; overflow: hidden; background: var(--panel); transition: opacity 180ms ease, border-color 180ms ease; min-width: 0; }
+.allocation.future { opacity: 0.18; }
+.allocation.freed { border-color: var(--green); opacity: 0.52; }
+.allocation.active-source { border-color: var(--orange); }
+.allocation.active-target { border-color: var(--blue); }
+.alloc-title { display: flex; justify-content: space-between; gap: 8px; padding: 7px 9px; color: var(--purple); background: var(--purple-soft); font: 500 0.68rem var(--mono); }
+.allocation.freed .alloc-title { color: var(--green); background: var(--green-soft); }
+.allocation.active-source .alloc-title { color: var(--orange); background: var(--orange-soft); }
+.allocation.active-target .alloc-title { color: var(--blue); background: var(--blue-soft); }
+.alloc-address { color: var(--muted); font-weight: 400; white-space: nowrap; }
+.alloc-grid { display: grid; grid-template-columns: minmax(78px, 0.72fr) minmax(0, 1.28fr) 42px; }
+.heap-row { display: contents; }
+.heap-cell { min-width: 0; min-height: 35px; padding: 6px 8px; display: flex; align-items: center; border-top: 1px solid var(--border); border-right: 1px solid var(--border); font: 0.64rem var(--mono); overflow-wrap: anywhere; }
+.heap-cell:nth-child(3n) { border-right: 0; justify-content: center; color: var(--faint); white-space: nowrap; }
+.heap-cell.label { color: var(--blue-2); background: var(--surface); }
+.heap-cell.value { color: var(--text); }
+.heap-cell.pointer { color: var(--orange); }
+.allocation.freed .heap-cell { text-decoration: line-through; color: var(--faint); background: var(--surface); }
+.allocation.future .heap-cell { color: var(--faint); }
+.alloc-foot { padding: 6px 8px; border-top: 1px solid var(--border); color: var(--muted); background: var(--surface); font: 0.59rem var(--mono); }
+.buffer-body { min-height: 105px; display: flex; flex-direction: column; justify-content: center; padding: 10px; border-top: 1px solid var(--border); }
+.bytes { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); border: 1px solid var(--border); }
+.byte { display: flex; align-items: center; justify-content: center; min-height: 31px; border-right: 1px solid var(--border); color: var(--blue-2); background: var(--surface); font: 0.58rem var(--mono); }
+.byte:last-child { border-right: 0; }
+.buffer-text { margin-top: 7px; color: var(--text); text-align: center; font: 0.7rem var(--mono); }
+.allocation.freed .byte, .allocation.freed .buffer-text { color: var(--faint); text-decoration: line-through; }
+
+.pointer-layer { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 4; pointer-events: none; overflow: visible; }
+.pointer-line { fill: none; stroke-width: 2; opacity: 0.94; }
+.pointer-line.box { stroke: var(--green); }
+.pointer-line.string { stroke: var(--orange); }
+.pointer-line.move { stroke: var(--blue); }
+.pointer-line.borrow { stroke: var(--purple); stroke-dasharray: 3 4; }
+.marker-box { fill: var(--green); }
+.marker-string { fill: var(--orange); }
+.marker-move { fill: var(--blue); }
+.marker-borrow { fill: var(--purple); }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; padding: 11px 18px; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.7rem; }
+.legend-item { display: inline-flex; gap: 6px; align-items: center; }
+.line-swatch { width: 22px; height: 0; border-top: 2px solid currentColor; }
+.line-swatch.box { color: var(--green); }
+.line-swatch.string { color: var(--orange); }
+.line-swatch.borrow { color: var(--purple); border-top-style: dashed; }
+.swatch { width: 12px; height: 12px; border-radius: 2px; border: 1px solid currentColor; }
+.swatch.freed { color: var(--green); background: var(--green-soft); }
+
+/* Explanation */
+.layout-table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 0.79rem; }
+.layout-table th, .layout-table td { padding: 9px 11px; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+.layout-table th { color: var(--blue); background: var(--border-soft); font-weight: 500; }
+.layout-table td { background: var(--panel); }
+.layout-table tr:nth-child(even) td { background: var(--panel-2); }
+.layout-table td:first-child { color: var(--orange); font-family: var(--mono); }
+.two-col { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.explain-block { min-width: 0; border-top: 2px solid var(--border); padding-top: 12px; }
+.explain-block h3 { margin-top: 0; }
+.explain-block p, .explain-block ul { color: var(--muted); font-size: 0.86rem; }
+.explain-block ul { padding-left: 20px; }
+.explain-block li { margin: 7px 0; }
+.explain-block strong { color: var(--text); font-weight: 500; }
+.drop-flow { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.flow-item { position: relative; min-width: 0; padding: 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); font-size: 0.72rem; }
+.flow-item::after { content: "\2192"; position: absolute; right: -10px; top: 50%; z-index: 2; color: var(--orange); background: var(--bg); padding: 0 2px; }
+.flow-item:last-child::after { display: none; }
+.flow-code { display: block; color: var(--purple); font: 500 0.67rem var(--mono); margin-bottom: 5px; }
+.flow-text { color: var(--muted); }
+.footer { margin-top: 52px; padding-top: 18px; border-top: 1px solid var(--border-soft); color: var(--faint); text-align: center; font: 0.72rem var(--mono); }
+
+@media (max-width: 980px) {
+  .source-grid, .memory-stage, .two-col { grid-template-columns: 1fr; }
+  .memory-stage { min-height: 0; }
+  .heap-zone { padding-right: 30px; }
+  .pointer-layer { display: none; }
+  .step-tabs { overflow-x: auto; grid-template-columns: repeat(6, minmax(108px, 1fr)); padding-bottom: 3px; }
+  .drop-flow { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .flow-item:nth-child(3)::after { display: none; }
+}
+
+@media (max-width: 640px) {
+  body { padding: 24px 12px 48px; }
+  h1 { font-size: 1.5rem; }
+  h2 { margin-top: 38px; }
+  .runtime-toolbar { grid-template-columns: 36px minmax(0, 1fr) 36px; padding: 10px; gap: 7px; }
+  .nav-btn { width: 36px; height: 36px; }
+  .step-tabs { grid-template-columns: repeat(6, minmax(0, 1fr)); overflow: visible; padding-bottom: 0; gap: 4px; }
+  .step-tab { min-height: 46px; padding: 4px 1px; overflow-wrap: anywhere; }
+  .tab-label { display: none; }
+  .tab-short { display: block; }
+  .step-summary { grid-template-columns: 1fr; gap: 8px; }
+  .runtime-status { justify-content: flex-start; }
+  .memory-stage { padding: 12px; gap: 16px; }
+  .stack-row { grid-template-columns: minmax(76px, 0.58fr) minmax(0, 1.42fr); }
+  .stack-cell.size { display: none; }
+  .frame-title { flex-direction: column; gap: 2px; }
+  .frame-sub { text-align: left; }
+  .anatomy-grid { grid-template-columns: 1fr; }
+  .heap-zone { padding-right: 22px; }
+  .heap-group { grid-template-columns: 1fr; }
+  .alloc-grid { grid-template-columns: minmax(76px, 0.72fr) minmax(0, 1.28fr); }
+  .heap-cell:nth-child(3n) { display: none; }
+  .heap-cell:nth-child(3n + 2) { border-right: 0; }
+  .drop-flow { grid-template-columns: 1fr; }
+  .flow-item::after { display: none; }
+  .layout-table { font-size: 0.72rem; }
+  .layout-table th, .layout-table td { padding: 7px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .allocation, .stack-row, .code-line { transition: none; }
+}
+</style>
+</head>
+<body>
+<main class="container">
+  <h1>Box&lt;Dog&gt;：从装箱到自动释放</h1>
+  <p class="subtitle">src/ptr_01_box.rs · box_01_basic · 64 位平台概念布局</p>
+
+  <section aria-labelledby="source-title">
+    <h2 id="source-title">一、先看结论</h2>
+    <div class="source-grid">
+<pre class="code-block" aria-label="box_01_basic 核心源码"><code><span class="code-line" data-source="0"><span class="kw">let</span> dog = <span class="ty">Box</span>::<span class="fn">new</span>(<span class="ty">Dog</span> {</span>
+<span class="code-line" data-source="0">  name: <span class="str">"旺财"</span>.<span class="fn">to_string</span>(),</span>
+<span class="code-line" data-source="0">});</span>
+<span class="code-line" data-source="1"><span class="mac">println!</span>(<span class="str">"{} 叫: {}"</span>, dog.<span class="fn">name</span>(), dog.<span class="fn">bark</span>());</span>
+<span class="code-line" data-source="2"><span class="kw">let</span> inner: <span class="ty">Dog</span> = *dog;</span>
+<span class="code-line" data-source="2"><span class="mac">println!</span>(<span class="str">"解引用后 name = {}"</span>, inner.name);</span>
+<span class="code-line" data-source="3"><span class="kw">let mut</span> dog2 = <span class="ty">Box</span>::<span class="fn">new</span>(<span class="ty">Dog</span> {</span>
+<span class="code-line" data-source="3">  name: <span class="str">"大黄"</span>.<span class="fn">to_string</span>(),</span>
+<span class="code-line" data-source="3">});</span>
+<span class="code-line" data-source="4">dog2.name = <span class="str">"二黄"</span>.<span class="fn">to_string</span>();</span>
+<span class="code-line" data-source="5"><span class="cm">// 作用域结束：先 drop(dog2)，再 drop(inner)</span></span></code></pre>
+
+      <aside class="conclusion" aria-label="Box 基础示例核心结论">
+        <div class="conclusion-title">三层所有权</div>
+        <div class="fact"><span class="fact-label">栈上 Box</span><span class="fact-value"><strong>8 B</strong>，只保存指向 Dog 的指针</span></div>
+        <div class="fact"><span class="fact-label">堆上 Dog</span><span class="fact-value"><strong>24 B</strong>，此处就是一个 String 头部</span></div>
+        <div class="fact"><span class="fact-label">String 头部</span><span class="fact-value"><code>ptr + len + capacity</code>，各 8 B</span></div>
+        <div class="fact"><span class="fact-label">UTF-8 数据</span><span class="fact-value">另一次堆分配；两个汉字是 <strong>6 B</strong></span></div>
+        <div class="fact"><span class="fact-label"><code>*dog</code></span><span class="fact-value">搬出 Dog，并回收 Box 的 Dog 分配块</span></div>
+      </aside>
+    </div>
+
+    <div class="callout">
+      <strong><code>Box&lt;Dog&gt;</code> 不是“所有内容只分配一次”。</strong>
+      <code>Box::new</code> 为 Dog 分配一块堆内存；Dog 里的 <code>String</code> 又拥有自己的 UTF-8 缓冲区，所以本例的每个装箱 Dog 通常涉及两块独立的堆分配。
+    </div>
+  </section>
+
+  <section aria-labelledby="runtime-title">
+    <h2 id="runtime-title">二、逐步看栈、堆与所有权</h2>
+
+    <div class="runtime-tool" id="runtime-tool">
+      <div class="runtime-toolbar" aria-label="内存状态步骤控制">
+        <button class="nav-btn" id="prev-step" type="button" aria-label="上一步" title="上一步">&#8249;</button>
+        <div class="step-tabs" role="tablist" aria-label="Box 运行时步骤">
+          <button class="step-tab" type="button" role="tab" data-step="0" aria-selected="true"><span class="tab-label">1 创建 dog</span><span class="tab-short">1 dog</span></button>
+          <button class="step-tab" type="button" role="tab" data-step="1" aria-selected="false"><span class="tab-label">2 借用调用</span><span class="tab-short">2 &amp;</span></button>
+          <button class="step-tab" type="button" role="tab" data-step="2" aria-selected="false"><span class="tab-label">3 搬出 Dog</span><span class="tab-short">3 move</span></button>
+          <button class="step-tab" type="button" role="tab" data-step="3" aria-selected="false"><span class="tab-label">4 创建 dog2</span><span class="tab-short">4 dog2</span></button>
+          <button class="step-tab" type="button" role="tab" data-step="4" aria-selected="false"><span class="tab-label">5 替换 name</span><span class="tab-short">5 set</span></button>
+          <button class="step-tab" type="button" role="tab" data-step="5" aria-selected="false"><span class="tab-label">6 作用域结束</span><span class="tab-short">6 drop</span></button>
+        </div>
+        <button class="nav-btn" id="next-step" type="button" aria-label="下一步" title="下一步">&#8250;</button>
+      </div>
+
+      <div class="step-summary" aria-live="polite">
+        <div>
+          <div class="step-kicker" id="step-kicker">STEP 1 / 6 · BOX::NEW</div>
+          <div class="step-title" id="step-title">创建 dog：Box 句柄、Dog 与字符串缓冲区</div>
+          <div class="step-detail" id="step-detail"><code>dog</code> 在栈上保存 8 B 指针；堆上的 Dog 保存 String 三元组，再指向另一块 UTF-8 缓冲区。</div>
+        </div>
+        <div class="runtime-status">
+          <span class="status-pill" id="box-pill">Box 分配 <strong id="box-summary">1 块存活</strong></span>
+          <span class="status-pill" id="string-pill">String 缓冲 <strong id="string-summary">1 块存活</strong></span>
+        </div>
+      </div>
+
+      <div class="memory-stage" id="memory-stage">
+        <section class="memory-zone stack-zone" aria-label="box_01_basic 栈空间">
+          <div class="zone-header"><span class="zone-title">栈 STACK</span><span class="zone-meta">box_01_basic() 逻辑栈帧</span></div>
+          <div class="address-axis"><span>高地址</span><span>&#8594; 低地址</span></div>
+
+          <div class="stack-frame">
+            <div class="frame-title"><span>box_01_basic()</span><span class="frame-sub">所有权变量按声明顺序出现</span></div>
+            <div class="stack-row" id="row-dog">
+              <div class="stack-cell field">dog<span class="cell-sub">Box&lt;Dog&gt;</span></div>
+              <div class="stack-cell value" id="stack-dog">ptr = 0x...D000<span class="cell-sub">Unique&lt;Dog&gt;</span></div>
+              <div class="stack-cell size">8 B</div>
+            </div>
+            <div class="stack-row inactive" id="row-inner">
+              <div class="stack-cell field">inner<span class="cell-sub">Dog</span></div>
+              <div class="stack-cell value" id="stack-inner">未初始化<span class="cell-sub">String { ptr, len, cap }</span></div>
+              <div class="stack-cell size">24 B</div>
+            </div>
+            <div class="stack-row inactive" id="row-dog2">
+              <div class="stack-cell field">dog2<span class="cell-sub">Box&lt;Dog&gt;</span></div>
+              <div class="stack-cell value" id="stack-dog2">未初始化<span class="cell-sub">Unique&lt;Dog&gt;</span></div>
+              <div class="stack-cell size">8 B</div>
+            </div>
+            <div class="frame-note" id="stack-note"><code>dog</code> 自己不内嵌 Dog；它只拥有并指向堆地址 <code>0x...D000</code>。</div>
+          </div>
+
+          <div class="anatomy" aria-label="Box 与 String 结构">
+            <div class="anatomy-title">本例中的值结构（64 位概念大小）</div>
+            <div class="anatomy-grid">
+              <div class="anatomy-item">
+                <div class="anatomy-name">Box&lt;Dog&gt; · 8 B</div>
+                <div class="anatomy-field">ptr: Unique&lt;Dog&gt;</div>
+                <div class="anatomy-foot">拥有 Dog 分配块；移动 Box 只移动指针</div>
+              </div>
+              <div class="anatomy-item">
+                <div class="anatomy-name">String · 24 B</div>
+                <div class="anatomy-field">ptr: 8 B · len: 8 B · cap: 8 B</div>
+                <div class="anatomy-foot">头部随 Dog 移动；字符缓冲区地址不变</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="memory-zone heap-zone" aria-label="Box Dog 和 String 缓冲区堆空间">
+          <div class="zone-header"><span class="zone-title">堆 HEAP</span><span class="zone-meta">分配器元数据未画出</span></div>
+          <div class="heap-groups">
+            <div class="heap-group">
+              <article class="allocation" id="alloc-dog">
+                <div class="alloc-title"><span>Dog / String 头部 · 24 B</span><span class="alloc-address">0x...D000</span></div>
+                <div class="alloc-grid">
+                  <div class="heap-row"><div class="heap-cell label">name.ptr</div><div class="heap-cell value pointer" id="dog-name-ptr">0x...5700</div><div class="heap-cell">8 B</div></div>
+                  <div class="heap-row"><div class="heap-cell label">name.len</div><div class="heap-cell value">6</div><div class="heap-cell">8 B</div></div>
+                  <div class="heap-row"><div class="heap-cell label">name.cap</div><div class="heap-cell value">6（本次示意）</div><div class="heap-cell">8 B</div></div>
+                </div>
+                <div class="alloc-foot">Dog 只有 name 字段，因此大小与 String 相同</div>
+              </article>
+              <article class="allocation" id="buf-wang">
+                <div class="alloc-title"><span>String UTF-8 · 请求 6 B</span><span class="alloc-address">0x...5700</span></div>
+                <div class="buffer-body">
+                  <div class="bytes" aria-label="旺财 UTF-8 字节"><span class="byte">E6</span><span class="byte">97</span><span class="byte">BA</span><span class="byte">E8</span><span class="byte">B4</span><span class="byte">A2</span></div>
+                  <div class="buffer-text">"旺财" · len = 6</div>
+                </div>
+              </article>
+            </div>
+
+            <div class="heap-group">
+              <article class="allocation future" id="alloc-dog2">
+                <div class="alloc-title"><span>Dog / String 头部 · 24 B</span><span class="alloc-address">0x...D200</span></div>
+                <div class="alloc-grid">
+                  <div class="heap-row"><div class="heap-cell label">name.ptr</div><div class="heap-cell value pointer" id="dog2-name-ptr">未分配</div><div class="heap-cell">8 B</div></div>
+                  <div class="heap-row"><div class="heap-cell label">name.len</div><div class="heap-cell value">6</div><div class="heap-cell">8 B</div></div>
+                  <div class="heap-row"><div class="heap-cell label">name.cap</div><div class="heap-cell value">6（本次示意）</div><div class="heap-cell">8 B</div></div>
+                </div>
+                <div class="alloc-foot" id="dog2-foot">等待执行 Box::new</div>
+              </article>
+              <article class="allocation future" id="buf-da">
+                <div class="alloc-title"><span>String UTF-8 · 请求 6 B</span><span class="alloc-address">0x...DA00</span></div>
+                <div class="buffer-body">
+                  <div class="bytes" aria-label="大黄 UTF-8 字节"><span class="byte">E5</span><span class="byte">A4</span><span class="byte">A7</span><span class="byte">E9</span><span class="byte">BB</span><span class="byte">84</span></div>
+                  <div class="buffer-text">"大黄" · len = 6</div>
+                </div>
+              </article>
+            </div>
+
+            <div class="heap-group" id="er-group">
+              <article class="allocation future" id="buf-er">
+                <div class="alloc-title"><span>新 String UTF-8 · 请求 6 B</span><span class="alloc-address">0x...E200</span></div>
+                <div class="buffer-body">
+                  <div class="bytes" aria-label="二黄 UTF-8 字节"><span class="byte">E4</span><span class="byte">BA</span><span class="byte">8C</span><span class="byte">E9</span><span class="byte">BB</span><span class="byte">84</span></div>
+                  <div class="buffer-text">"二黄" · len = 6</div>
+                </div>
+              </article>
+              <div aria-hidden="true"></div>
+            </div>
+          </div>
+        </section>
+
+        <svg class="pointer-layer" id="pointer-layer" aria-hidden="true">
+          <defs>
+            <marker id="arrow-box" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><path class="marker-box" d="M0,0 L8,3 L0,6 Z"></path></marker>
+            <marker id="arrow-string" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><path class="marker-string" d="M0,0 L8,3 L0,6 Z"></path></marker>
+            <marker id="arrow-move" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><path class="marker-move" d="M0,0 L8,3 L0,6 Z"></path></marker>
+            <marker id="arrow-borrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><path class="marker-borrow" d="M0,0 L8,3 L0,6 Z"></path></marker>
+          </defs>
+          <g id="pointer-paths"></g>
+        </svg>
+      </div>
+
+      <div class="legend" aria-label="内存连线图例">
+        <span class="legend-item"><span class="line-swatch box"></span>Box 对 Dog 的所有权</span>
+        <span class="legend-item"><span class="line-swatch string"></span>String 对缓冲区的所有权</span>
+        <span class="legend-item"><span class="line-swatch borrow"></span>临时共享借用</span>
+        <span class="legend-item"><span class="swatch freed"></span>已释放 / 已失效</span>
+      </div>
+    </div>
+
+    <div class="callout warning">
+      <strong>图里的地址与容量用于解释布局，不是 ABI 保证。</strong>
+      <code>String</code> 的字段顺序未被 Rust 稳定承诺；“请求 6 B”也不包含分配器簿记和向上取整。编译器优化后，栈槽甚至可能被合并或消除。
+    </div>
+  </section>
+
+  <section aria-labelledby="layout-title">
+    <h2 id="layout-title">三、每一层实际放了什么</h2>
+    <table class="layout-table">
+      <thead><tr><th>位置 / 类型</th><th>64 位示意大小</th><th>存放内容</th><th>所有权变化</th></tr></thead>
+      <tbody>
+        <tr><td>栈：<code>Box&lt;Dog&gt;</code></td><td>8 B</td><td>指向堆上 Dog 的唯一非空指针</td><td>Box 被 drop 时递归 drop Dog，并回收 Dog 分配块</td></tr>
+        <tr><td>堆：<code>Dog</code></td><td>24 B</td><td>本例只有 <code>name: String</code>，所以就是 String 头部</td><td><code>*dog</code> 把这 24 B 的值逻辑搬到栈上的 inner</td></tr>
+        <tr><td><code>String</code> 头部</td><td>24 B</td><td>缓冲区指针、字节长度、容量</td><td>移动 String 只搬头部，不复制 UTF-8 字节</td></tr>
+        <tr><td>堆：UTF-8 缓冲区</td><td>请求 6 B</td><td>“旺财”“大黄”或“二黄”的 6 个 UTF-8 字节</td><td>随拥有它的 String 析构而释放</td></tr>
+        <tr><td><code>&amp;Dog</code> 临时借用</td><td>8 B 概念指针</td><td><code>name()</code> / <code>bark()</code> 调用期间的共享引用</td><td>不转移所有权，也不新建堆分配</td></tr>
+      </tbody>
+    </table>
+
+    <div class="two-col">
+      <div class="explain-block">
+        <h3>为什么 *dog 之后缓冲区没动</h3>
+        <p><code>let inner: Dog = *dog</code> 搬的是 Dog 值，也就是 24 B String 头部。头部中的 <code>ptr</code> 仍指向原来的“旺财”缓冲区，所以字符数据不用复制，Box 的 Dog 分配块则可立即回收。</p>
+      </div>
+      <div class="explain-block">
+        <h3>为什么字段赋值先释放“大黄”</h3>
+        <p>右侧先构造新的“二黄” String，然后替换 <code>dog2.name</code>。旧字段值不再有所有者，会当场 drop 并释放“大黄”缓冲区；Dog 的 24 B Box 分配块本身保持不动。</p>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="drop-title">
+    <h2 id="drop-title">四、作用域结束时的析构顺序</h2>
+    <div class="drop-flow" aria-label="box_01_basic 析构链">
+      <div class="flow-item"><span class="flow-code">drop(dog2)</span><span class="flow-text">后声明的局部变量先析构</span></div>
+      <div class="flow-item"><span class="flow-code">drop(Dog)</span><span class="flow-text">递归析构 name: String</span></div>
+      <div class="flow-item"><span class="flow-code">free("二黄")</span><span class="flow-text">释放当前 String 缓冲区</span></div>
+      <div class="flow-item"><span class="flow-code">free(Box block)</span><span class="flow-text">回收 dog2 的 24 B Dog 分配</span></div>
+      <div class="flow-item"><span class="flow-code">drop(inner)</span><span class="flow-text">最后释放“旺财”缓冲区</span></div>
+    </div>
+
+    <div class="callout">
+      原来的 <code>dog</code> 已在 <code>*dog</code> 时被消费，不会在函数末尾再次 drop。它原先拥有的 Dog 分配块已回收，而 String 的所有权已经随 Dog 搬到 <code>inner</code>。
+    </div>
+  </section>
+
+  <footer class="footer">Rust Box 内存布局 · 对应 src/ptr_01_box.rs::box_01_basic · 2026-08-05</footer>
+</main>
+
+<script>
+(() => {
+  const tool = document.getElementById('runtime-tool');
+  const stage = document.getElementById('memory-stage');
+  const tabs = Array.from(tool.querySelectorAll('.step-tab'));
+  const sourceLines = Array.from(document.querySelectorAll('.code-line'));
+  const prev = document.getElementById('prev-step');
+  const next = document.getElementById('next-step');
+  const kicker = document.getElementById('step-kicker');
+  const stepTitle = document.getElementById('step-title');
+  const stepDetail = document.getElementById('step-detail');
+  const boxPill = document.getElementById('box-pill');
+  const stringPill = document.getElementById('string-pill');
+  const boxSummary = document.getElementById('box-summary');
+  const stringSummary = document.getElementById('string-summary');
+  const rowDog = document.getElementById('row-dog');
+  const rowInner = document.getElementById('row-inner');
+  const rowDog2 = document.getElementById('row-dog2');
+  const stackDog = document.getElementById('stack-dog');
+  const stackInner = document.getElementById('stack-inner');
+  const stackDog2 = document.getElementById('stack-dog2');
+  const stackNote = document.getElementById('stack-note');
+  const allocDog = document.getElementById('alloc-dog');
+  const allocDog2 = document.getElementById('alloc-dog2');
+  const bufWang = document.getElementById('buf-wang');
+  const bufDa = document.getElementById('buf-da');
+  const bufEr = document.getElementById('buf-er');
+  const dogNamePtr = document.getElementById('dog-name-ptr');
+  const dog2NamePtr = document.getElementById('dog2-name-ptr');
+  const dog2Foot = document.getElementById('dog2-foot');
+  const pointerPaths = document.getElementById('pointer-paths');
+
+  const steps = [
+    {
+      phase: 'BOX::NEW',
+      title: '创建 dog：Box 句柄、Dog 与字符串缓冲区',
+      detail: 'dog 在栈上保存 8 B 指针；堆上的 Dog 保存 String 三元组，再指向另一块 UTF-8 缓冲区。'
+    },
+    {
+      phase: 'DEREF COERCION',
+      title: '调用 name() / bark()：只有临时共享借用',
+      detail: '方法调用通过 Deref 强制转换得到 &Dog；借用结束后内存与所有权状态完全不变。'
+    },
+    {
+      phase: 'MOVE OUT',
+      title: 'let inner: Dog = *dog：把 Dog 搬出 Box',
+      detail: 'String 的 ptr / len / capacity 被搬到栈上 inner；Box 的 Dog 分配块回收，但 UTF-8 缓冲区仍由 inner.name 拥有。'
+    },
+    {
+      phase: 'BOX::NEW',
+      title: '创建 dog2：得到新的 Dog 与“大黄”缓冲区',
+      detail: 'dog2 指向独立的 24 B Dog 分配；inner 与 dog2 同时存活，分别拥有各自的 String 缓冲区。'
+    },
+    {
+      phase: 'FIELD REPLACE',
+      title: 'dog2.name = "二黄"：只替换 String 所有权',
+      detail: '新缓冲区先分配，再把 String 头部写入原 Dog；旧“大黄”String 被 drop，Dog 的 Box 地址保持不变。'
+    },
+    {
+      phase: 'DROP',
+      title: '离开作用域：dog2 先于 inner 自动析构',
+      detail: '先释放“二黄”和 dog2 的 Dog 分配，再由 inner 释放“旺财”；最终没有任何堆分配遗留。'
+    }
+  ];
+
+  let current = 0;
+
+  function setRowState(row, state) {
+    row.classList.toggle('inactive', state === 'inactive');
+    row.classList.toggle('moved', state === 'moved');
+    row.classList.toggle('dropped', state === 'dropped');
+  }
+
+  function setAllocationState(element, state) {
+    element.classList.toggle('future', state === 'future');
+    element.classList.toggle('freed', state === 'freed');
+    element.classList.toggle('active-source', state === 'active-source');
+    element.classList.toggle('active-target', state === 'active-target');
+  }
+
+  function svgNode(name, attrs) {
+    const node = document.createElementNS('http://www.w3.org/2000/svg', name);
+    Object.entries(attrs).forEach(([key, value]) => node.setAttribute(key, value));
+    return node;
+  }
+
+  function drawLink(source, target, kind, route = 'horizontal') {
+    if (!source || !target || source.getClientRects().length === 0 || target.getClientRects().length === 0) return;
+    const s = source.getBoundingClientRect();
+    const t = target.getBoundingClientRect();
+    const base = stage.getBoundingClientRect();
+    let sx = s.right - base.left;
+    let sy = s.top - base.top + s.height / 2;
+    let tx = t.left - base.left + 7;
+    let ty = t.top - base.top + 22;
+    let d;
+
+    if (route === 'heap') {
+      sx = s.right - base.left;
+      sy = s.top - base.top + s.height / 2;
+      tx = t.left - base.left + 7;
+      ty = t.top - base.top + 22;
+      const bend = Math.max(sx + 12, tx - 18);
+      d = `M ${sx} ${sy} C ${bend} ${sy}, ${bend} ${ty}, ${tx} ${ty}`;
+    } else {
+      const mid = sx + (tx - sx) / 2;
+      d = `M ${sx} ${sy} C ${mid} ${sy}, ${mid} ${ty}, ${tx} ${ty}`;
+    }
+
+    pointerPaths.appendChild(svgNode('path', {
+      d,
+      class: `pointer-line ${kind}`,
+      'marker-end': `url(#arrow-${kind})`
+    }));
+  }
+
+  function drawPointers() {
+    pointerPaths.replaceChildren();
+    if (current === 5) return;
+
+    if (current <= 1) {
+      drawLink(stackDog, allocDog, current === 1 ? 'borrow' : 'box');
+      drawLink(dogNamePtr, bufWang, 'string', 'heap');
+    } else {
+      drawLink(stackInner, bufWang, 'string');
+    }
+
+    if (current >= 3) {
+      drawLink(stackDog2, allocDog2, 'box');
+      drawLink(dog2NamePtr, current === 3 ? bufDa : bufEr, 'string', 'heap');
+    }
+  }
+
+  function render() {
+    const final = current === 5;
+    const moved = current >= 2;
+    const hasDog2 = current >= 3;
+    const replaced = current >= 4;
+
+    tabs.forEach((tab, index) => {
+      const selected = index === current;
+      tab.setAttribute('aria-selected', String(selected));
+      tab.tabIndex = selected ? 0 : -1;
+    });
+    sourceLines.forEach(line => line.classList.toggle('active', Number(line.dataset.source) === current));
+    prev.disabled = current === 0;
+    next.disabled = final;
+    kicker.textContent = `STEP ${current + 1} / ${tabs.length} · ${steps[current].phase}`;
+    stepTitle.textContent = steps[current].title;
+    stepDetail.textContent = steps[current].detail;
+
+    setRowState(rowDog, final ? 'dropped' : moved ? 'moved' : 'active');
+    setRowState(rowInner, final ? 'dropped' : moved ? 'active' : 'inactive');
+    setRowState(rowDog2, final ? 'dropped' : hasDog2 ? 'active' : 'inactive');
+    stackDog.innerHTML = final || moved
+      ? 'moved / 不可再用<span class="cell-sub">Box 分配已回收</span>'
+      : 'ptr = 0x...D000<span class="cell-sub">Unique&lt;Dog&gt;</span>';
+    stackInner.innerHTML = final
+      ? 'dropped<span class="cell-sub">“旺财”缓冲已释放</span>'
+      : moved
+        ? 'ptr = 0x...5700 · len 6 · cap 6<span class="cell-sub">Dog { name: String }</span>'
+        : '未初始化<span class="cell-sub">String { ptr, len, cap }</span>';
+    stackDog2.innerHTML = final
+      ? 'dropped<span class="cell-sub">Box 分配已回收</span>'
+      : hasDog2
+        ? 'ptr = 0x...D200<span class="cell-sub">Unique&lt;Dog&gt;</span>'
+        : '未初始化<span class="cell-sub">Unique&lt;Dog&gt;</span>';
+
+    setAllocationState(allocDog, moved ? 'freed' : current === 1 ? 'active-target' : 'active');
+    setAllocationState(bufWang, final ? 'freed' : 'active');
+    setAllocationState(allocDog2, final ? 'freed' : hasDog2 ? 'active' : 'future');
+    setAllocationState(bufDa, replaced ? 'freed' : hasDog2 ? 'active' : 'future');
+    setAllocationState(bufEr, final ? 'freed' : replaced ? 'active' : 'future');
+
+    dog2NamePtr.textContent = !hasDog2 ? '未分配' : replaced ? '0x...E200' : '0x...DA00';
+    dog2Foot.textContent = !hasDog2
+      ? '等待执行 Box::new'
+      : replaced
+        ? 'Box 地址未变；String 头部已指向“二黄”'
+        : 'Dog 只有 name 字段，因此大小与 String 相同';
+
+    if (final) {
+      stackNote.innerHTML = '<code>dog2</code> 后声明所以先析构；<code>inner</code> 随后释放。所有堆分配都已回收。';
+    } else if (replaced) {
+      stackNote.innerHTML = '<code>dog2</code> 的 Box 指针仍是 <code>0x...D200</code>；变化的是内部 String 的缓冲区指针。';
+    } else if (hasDog2) {
+      stackNote.innerHTML = '<code>inner</code> 直接拥有 Dog；<code>dog2</code> 则通过 8 B Box 句柄拥有另一只 Dog。';
+    } else if (moved) {
+      stackNote.innerHTML = '<code>dog</code> 已被消费；其 String 头部搬入 <code>inner</code>，字符缓冲区地址没有改变。';
+    } else if (current === 1) {
+      stackNote.innerHTML = '自动解引用产生临时 <code>&amp;Dog</code>；调用结束后借用消失，<code>dog</code> 仍拥有全部数据。';
+    } else {
+      stackNote.innerHTML = '<code>dog</code> 自己不内嵌 Dog；它只拥有并指向堆地址 <code>0x...D000</code>。';
+    }
+
+    const liveBoxes = final ? 0 : hasDog2 ? 1 : moved ? 0 : 1;
+    const liveBuffers = final ? 0 : hasDog2 ? 2 : 1;
+    boxSummary.textContent = final ? '0 块 · 全部释放' : `${liveBoxes} 块存活`;
+    stringSummary.textContent = final ? '0 块 · 全部释放' : `${liveBuffers} 块存活`;
+    boxPill.classList.toggle('freed', final);
+    stringPill.classList.toggle('freed', final);
+
+    window.requestAnimationFrame(drawPointers);
+  }
+
+  function selectStep(index, focus = false) {
+    current = Math.max(0, Math.min(tabs.length - 1, index));
+    render();
+    if (focus) tabs[current].focus();
+  }
+
+  tabs.forEach((tab, index) => {
+    tab.addEventListener('click', () => selectStep(index));
+    tab.addEventListener('keydown', event => {
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        selectStep(current - 1, true);
+      } else if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        selectStep(current + 1, true);
+      } else if (event.key === 'Home') {
+        event.preventDefault();
+        selectStep(0, true);
+      } else if (event.key === 'End') {
+        event.preventDefault();
+        selectStep(tabs.length - 1, true);
+      }
+    });
+  });
+  prev.addEventListener('click', () => selectStep(current - 1));
+  next.addEventListener('click', () => selectStep(current + 1));
+  window.addEventListener('resize', drawPointers);
+  window.addEventListener('load', drawPointers);
+  render();
+})();
+</script>
+</body>
+</html>

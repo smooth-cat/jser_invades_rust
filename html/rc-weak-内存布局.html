@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rust Rc / Weak：rc_05_no_leak 内存布局</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+:root {
+  --bg: #0d1117;
+  --panel: #161b22;
+  --panel-2: #1c2129;
+  --surface: #090d12;
+  --border: #30363d;
+  --border-soft: #21262d;
+  --text: #c9d1d9;
+  --muted: #8b949e;
+  --faint: #6e7681;
+  --blue: #58a6ff;
+  --blue-2: #79c0ff;
+  --blue-soft: rgba(56, 139, 253, 0.13);
+  --green: #7ee787;
+  --green-soft: rgba(46, 160, 67, 0.13);
+  --purple: #d2a8ff;
+  --purple-soft: rgba(163, 113, 247, 0.13);
+  --orange: #ffa657;
+  --orange-soft: rgba(240, 136, 62, 0.13);
+  --red: #ff7b72;
+  --red-soft: rgba(248, 81, 73, 0.12);
+  --yellow: #e3b341;
+  --yellow-soft: rgba(227, 179, 65, 0.12);
+  --mono: "SF Mono", "JetBrains Mono", "Fira Code", Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+html { scroll-behavior: smooth; }
+body { background: var(--bg); color: var(--text); font-family: var(--sans); line-height: 1.7; padding: 40px 20px 72px; }
+.container { width: min(1240px, 100%); margin: 0 auto; }
+
+h1 {
+  color: var(--blue);
+  font: 500 clamp(1.5rem, 3vw, 2rem) var(--mono);
+  border-bottom: 1px solid var(--border-soft);
+  padding-bottom: 12px;
+  overflow-wrap: anywhere;
+}
+h2 { color: var(--orange); font: 500 1.25rem var(--mono); margin: 48px 0 18px; padding-left: 12px; border-left: 3px solid var(--orange); }
+h3 { color: var(--blue-2); font: 500 1rem var(--mono); margin: 28px 0 12px; }
+p { margin: 10px 0; }
+code, pre, .mono { font-family: var(--mono); }
+p code, li code, td code, .callout code, .fact-value code, .frame-note code {
+  color: var(--blue-2);
+  background: var(--border-soft);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
+.subtitle { color: var(--muted); font: 0.88rem var(--mono); margin: 8px 0 32px; }
+.source-grid { display: grid; grid-template-columns: minmax(0, 1.42fr) minmax(310px, 0.58fr); gap: 18px; align-items: stretch; }
+.code-block {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 18px;
+  overflow-x: auto;
+  font: 0.78rem/1.8 var(--mono);
+  white-space: pre;
+  tab-size: 2;
+}
+.code-block code { font: inherit; color: inherit; }
+.kw { color: var(--red); }
+.ty { color: var(--blue-2); }
+.fn { color: var(--purple); }
+.num { color: var(--blue-2); }
+.cm { color: var(--muted); }
+.mac { color: var(--orange); }
+
+.conclusion { border: 1px solid var(--border); border-top: 3px solid var(--green); border-radius: 8px; background: var(--panel); padding: 18px; min-width: 0; }
+.conclusion-title { color: var(--green); font: 500 0.9rem var(--mono); margin-bottom: 10px; }
+.fact { display: grid; grid-template-columns: 98px 1fr; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border-soft); font-size: 0.84rem; }
+.fact:last-child { border-bottom: 0; }
+.fact-label { color: var(--muted); }
+.fact-value { min-width: 0; overflow-wrap: anywhere; }
+.fact-value strong { color: var(--orange); font-weight: 500; }
+
+.callout { margin: 18px 0; padding: 14px 16px; border: 1px solid var(--border); border-left: 4px solid var(--blue); border-radius: 6px; background: var(--panel); font-size: 0.88rem; }
+.callout.warning { border-left-color: var(--yellow); }
+.callout.success { border-left-color: var(--green); }
+.callout strong { color: var(--orange); font-weight: 500; }
+
+/* Runtime stepper */
+.runtime-tool { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.runtime-toolbar { display: grid; grid-template-columns: 40px minmax(0, 1fr) 40px; gap: 10px; align-items: center; padding: 14px; border-bottom: 1px solid var(--border); background: var(--panel-2); }
+.nav-btn { width: 40px; height: 40px; border: 1px solid var(--border); border-radius: 6px; color: var(--text); background: var(--surface); font: 500 1.2rem var(--sans); cursor: pointer; }
+.nav-btn:hover:not(:disabled) { border-color: var(--blue); color: var(--blue); }
+.nav-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.step-tabs { display: grid; grid-template-columns: repeat(8, minmax(78px, 1fr)); gap: 6px; min-width: 0; }
+.step-tab { min-height: 42px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); color: var(--muted); font: 0.68rem var(--mono); padding: 6px; cursor: pointer; white-space: normal; }
+.step-tab:hover { border-color: var(--faint); color: var(--text); }
+.step-tab[aria-selected="true"] { background: var(--blue-soft); border-color: var(--blue); color: var(--blue); }
+.tab-short { display: none; }
+
+.step-summary { min-height: 100px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+.step-kicker { color: var(--blue); font: 500 0.75rem var(--mono); }
+.step-title { color: var(--text); font: 500 0.98rem var(--mono); }
+.step-detail { color: var(--muted); font-size: 0.82rem; margin-top: 2px; max-width: 740px; }
+.runtime-status { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; max-width: 420px; }
+.count-pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border: 1px solid var(--border); border-radius: 12px; color: var(--muted); background: var(--surface); font: 0.65rem var(--mono); white-space: nowrap; }
+.count-pill strong { color: var(--text); font-weight: 500; }
+.count-pill.tombstone { color: var(--yellow); border-color: var(--yellow); }
+.count-pill.freed { color: var(--green); border-color: var(--green); }
+
+.memory-stage {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(310px, 0.72fr) minmax(570px, 1.28fr);
+  gap: 20px;
+  padding: 18px;
+  background: var(--surface);
+  min-height: 1080px;
+}
+.memory-zone { position: relative; z-index: 1; min-width: 0; }
+.zone-header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 10px; font-family: var(--mono); }
+.zone-title { font-size: 0.77rem; font-weight: 500; text-transform: uppercase; }
+.stack-zone .zone-title { color: var(--green); }
+.heap-zone .zone-title { color: var(--purple); }
+.zone-meta { color: var(--faint); font-size: 0.64rem; text-align: right; }
+.address-axis { display: flex; justify-content: space-between; color: var(--faint); font: 0.65rem var(--mono); padding: 0 2px 8px; }
+
+.stack-frame { border: 2px solid var(--green); border-radius: 6px; overflow: hidden; background: var(--panel); }
+.frame-title { display: flex; justify-content: space-between; gap: 12px; background: var(--green-soft); color: var(--green); font: 500 0.76rem var(--mono); padding: 7px 10px; }
+.frame-sub { color: var(--muted); font-weight: 400; text-align: right; }
+.stack-row { display: grid; grid-template-columns: minmax(92px, 0.72fr) minmax(150px, 1.28fr) 50px; min-height: 58px; border-top: 1px solid var(--border); transition: opacity 160ms ease; }
+.stack-row.inactive { opacity: 0.22; }
+.stack-row.dropped { opacity: 0.52; }
+.stack-cell { min-width: 0; padding: 8px 9px; display: flex; flex-direction: column; justify-content: center; border-right: 1px solid var(--border); font: 0.68rem var(--mono); overflow-wrap: anywhere; }
+.stack-cell:last-child { border-right: 0; }
+.stack-cell.field { color: var(--blue-2); background: var(--surface); font-weight: 500; }
+.stack-cell.value { color: var(--orange); position: relative; }
+.stack-cell.value.weak-value { color: var(--blue); }
+.stack-cell.size { color: var(--faint); align-items: center; white-space: nowrap; }
+.stack-row.dropped .stack-cell.value { color: var(--red); text-decoration: line-through; background: var(--red-soft); }
+.cell-sub { color: var(--muted); font-size: 0.6rem; font-weight: 400; margin-top: 2px; }
+.frame-note { border-top: 1px solid var(--border); padding: 9px 10px; color: var(--muted); background: var(--surface); font-size: 0.7rem; min-height: 64px; }
+
+.handle-anatomy { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 12px; }
+.handle-title { color: var(--muted); font: 0.68rem var(--mono); margin-bottom: 8px; }
+.handle-pair { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.handle-box { min-width: 0; border: 1px solid var(--border); border-radius: 5px; background: var(--panel); overflow: hidden; }
+.handle-name { padding: 6px 8px; color: var(--green); background: var(--green-soft); font: 500 0.68rem var(--mono); }
+.handle-box.weak .handle-name { color: var(--blue); background: var(--blue-soft); }
+.handle-box.borrow .handle-name { color: var(--purple); background: var(--purple-soft); }
+.handle-field { padding: 8px; color: var(--orange); font: 0.65rem var(--mono); overflow-wrap: anywhere; }
+.handle-box.weak .handle-field { color: var(--blue); }
+.handle-box.borrow .handle-field { color: var(--purple); }
+.handle-foot { padding: 5px 8px; border-top: 1px solid var(--border); color: var(--faint); font: 0.58rem var(--mono); }
+
+.heap-zone { padding: 0 38px 0 0; }
+.allocations { display: flex; flex-direction: column; gap: 16px; }
+.allocation { border: 2px solid var(--purple); border-radius: 6px; overflow: hidden; background: var(--panel); transition: opacity 180ms ease, border-color 180ms ease; }
+.allocation.tombstone { border-color: var(--yellow); }
+.allocation.freed { border-color: var(--green); opacity: 0.48; }
+.alloc-title { display: flex; justify-content: space-between; gap: 12px; padding: 7px 10px; color: var(--purple); background: var(--purple-soft); font: 500 0.71rem var(--mono); }
+.allocation.tombstone .alloc-title { color: var(--yellow); background: var(--yellow-soft); }
+.allocation.freed .alloc-title { color: var(--green); background: var(--green-soft); }
+.alloc-address { color: var(--muted); font-weight: 400; white-space: nowrap; }
+.rcbox-grid { display: grid; grid-template-columns: minmax(124px, 0.8fr) minmax(0, 1.2fr) 48px; }
+.heap-row { display: contents; }
+.heap-cell { min-width: 0; min-height: 35px; padding: 6px 8px; display: flex; align-items: center; border-top: 1px solid var(--border); border-right: 1px solid var(--border); font: 0.65rem var(--mono); overflow-wrap: anywhere; }
+.heap-cell:nth-child(3n) { border-right: 0; justify-content: center; color: var(--faint); white-space: nowrap; }
+.heap-cell.label { color: var(--blue-2); background: var(--surface); }
+.heap-cell.value { color: var(--text); }
+.heap-cell.counter { color: var(--orange); background: var(--orange-soft); }
+.heap-cell.counter.weak-counter { color: var(--blue); background: var(--blue-soft); }
+.heap-cell.counter.borrow-counter { color: var(--purple); background: var(--purple-soft); }
+.heap-cell.counter.borrow-counter.is-writing { color: var(--red); background: var(--red-soft); }
+.heap-cell.value.edge-strong { color: var(--orange); }
+.heap-cell.value.edge-weak { color: var(--blue); }
+.heap-cell.value.none { color: var(--faint); }
+.allocation.tombstone .node-value { text-decoration: line-through; color: var(--faint); background: var(--surface); }
+.allocation.freed .heap-cell { text-decoration: line-through; color: var(--faint); background: var(--surface); }
+.alloc-foot { padding: 6px 9px; border-top: 1px solid var(--border); color: var(--muted); background: var(--surface); font: 0.61rem var(--mono); }
+
+.pointer-layer { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 4; pointer-events: none; overflow: visible; }
+.pointer-line { fill: none; stroke-width: 2; opacity: 0.94; }
+.pointer-line.stack { stroke: var(--green); }
+.pointer-line.strong { stroke: var(--orange); }
+.pointer-line.weak { stroke: var(--blue); stroke-dasharray: 6 4; }
+.pointer-line.borrow { stroke: var(--purple); stroke-dasharray: 2 4; }
+.marker-stack { fill: var(--green); }
+.marker-strong { fill: var(--orange); }
+.marker-weak { fill: var(--blue); }
+.marker-borrow { fill: var(--purple); }
+
+.legend { display: flex; flex-wrap: wrap; gap: 14px; padding: 11px 18px; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.7rem; }
+.legend-item { display: inline-flex; gap: 6px; align-items: center; }
+.line-swatch { width: 22px; height: 0; border-top: 2px solid currentColor; }
+.line-swatch.stack { color: var(--green); }
+.line-swatch.strong { color: var(--orange); }
+.line-swatch.weak { color: var(--blue); border-top-style: dashed; }
+.line-swatch.borrow { color: var(--purple); border-top-style: dotted; }
+.swatch { width: 12px; height: 12px; border-radius: 2px; border: 1px solid currentColor; }
+.swatch.tombstone { color: var(--yellow); background: var(--yellow-soft); }
+.swatch.freed { color: var(--green); background: var(--green-soft); }
+
+/* Detail sections */
+.two-col { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.explain-block { min-width: 0; border-top: 2px solid var(--border); padding-top: 12px; }
+.explain-block h3 { margin-top: 0; }
+.explain-block p, .explain-block ul { color: var(--muted); font-size: 0.86rem; }
+.explain-block ul { padding-left: 20px; }
+.explain-block li { margin: 7px 0; }
+.explain-block strong { color: var(--text); font-weight: 500; }
+.layout-table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 0.78rem; }
+.layout-table th, .layout-table td { padding: 9px 11px; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+.layout-table th { color: var(--blue); background: var(--border-soft); font-weight: 500; }
+.layout-table td { background: var(--panel); }
+.layout-table tr:nth-child(even) td { background: var(--panel-2); }
+.layout-table td:first-child { color: var(--orange); font-family: var(--mono); }
+.drop-flow { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
+.flow-item { position: relative; min-width: 0; padding: 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); font-size: 0.72rem; }
+.flow-item::after { content: "\2192"; position: absolute; right: -10px; top: 50%; z-index: 2; color: var(--orange); background: var(--bg); padding: 0 2px; }
+.flow-item:last-child::after { display: none; }
+.flow-code { display: block; color: var(--purple); font: 500 0.68rem var(--mono); margin-bottom: 5px; }
+.flow-text { color: var(--muted); }
+.footer { margin-top: 52px; padding-top: 18px; border-top: 1px solid var(--border-soft); color: var(--faint); text-align: center; font: 0.72rem var(--mono); }
+
+@media (max-width: 1040px) {
+  .source-grid, .memory-stage, .two-col { grid-template-columns: 1fr; }
+  .memory-stage { min-height: 0; }
+  .heap-zone { padding-right: 38px; }
+  .pointer-layer { display: none; }
+  .step-tabs { overflow-x: auto; grid-template-columns: repeat(8, minmax(96px, 1fr)); padding-bottom: 3px; }
+  .drop-flow { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .flow-item:nth-child(3)::after { display: none; }
+}
+
+@media (max-width: 650px) {
+  body { padding: 24px 12px 48px; }
+  h2 { margin-top: 38px; }
+  .runtime-toolbar { grid-template-columns: 36px minmax(0, 1fr) 36px; padding: 10px; }
+  .nav-btn { width: 36px; height: 36px; }
+  .step-tabs { grid-template-columns: repeat(8, minmax(0, 1fr)); overflow: visible; padding-bottom: 0; }
+  .step-tab { min-height: 50px; padding: 4px 2px; overflow-wrap: anywhere; }
+  .tab-label { display: none; }
+  .tab-short { display: block; }
+  .step-summary { grid-template-columns: 1fr; gap: 8px; }
+  .runtime-status { justify-content: flex-start; max-width: none; }
+  .memory-stage { padding: 12px; gap: 16px; }
+  .stack-row { grid-template-columns: minmax(88px, 0.72fr) minmax(0, 1.28fr); }
+  .stack-cell.size { display: none; }
+  .frame-title { flex-direction: column; gap: 2px; }
+  .frame-sub { text-align: left; }
+  .handle-pair { grid-template-columns: 1fr; }
+  .heap-zone { padding-right: 25px; }
+  .rcbox-grid { grid-template-columns: minmax(105px, 0.76fr) minmax(0, 1.24fr); }
+  .heap-cell:nth-child(3n) { display: none; }
+  .heap-cell:nth-child(3n + 2) { border-right: 0; }
+  .drop-flow { grid-template-columns: 1fr; }
+  .flow-item::after { display: none; }
+  .layout-table { font-size: 0.71rem; }
+  .layout-table th, .layout-table td { padding: 7px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .allocation, .stack-row { transition: none; }
+}
+</style>
+</head>
+<body>
+<main class="container">
+  <h1>Rc / Weak：无泄漏双向链表的内存布局</h1>
+  <p class="subtitle">src/ptr_02_rc.rs · rc_05_no_leak · 64 位平台概念布局</p>
+
+  <section aria-labelledby="source-title">
+    <h2 id="source-title">一、先看结论</h2>
+    <div class="source-grid">
+<pre class="code-block" aria-label="rc_05_no_leak 核心源码"><code><span class="kw">struct</span> <span class="ty">Node</span> {
+  data: <span class="ty">i32</span>,
+  next: <span class="ty">Option</span>&lt;<span class="ty">Rc</span>&lt;<span class="ty">RefCell</span>&lt;<span class="ty">Node</span>&gt;&gt;&gt;,
+  prev: <span class="ty">Option</span>&lt;<span class="ty">Weak</span>&lt;<span class="ty">RefCell</span>&lt;<span class="ty">Node</span>&gt;&gt;&gt;,
+}
+
+<span class="kw">fn</span> <span class="fn">new</span>(data: <span class="ty">i32</span>) -&gt; <span class="ty">Rc</span>&lt;<span class="ty">RefCell</span>&lt;<span class="ty">Node</span>&gt;&gt; {
+  <span class="ty">Rc</span>::<span class="fn">new</span>(<span class="ty">RefCell</span>::<span class="fn">new</span>(<span class="ty">Node</span> { data, next: <span class="ty">None</span>, prev: <span class="ty">None</span> }))
+}
+
+node2.<span class="fn">borrow_mut</span>().data = <span class="num">20</span>;
+node1.<span class="fn">borrow_mut</span>().next = <span class="ty">Some</span>(<span class="ty">Rc</span>::<span class="fn">clone</span>(&amp;node2));
+node2.<span class="fn">borrow_mut</span>().prev = <span class="ty">Some</span>(<span class="ty">Rc</span>::<span class="fn">downgrade</span>(&amp;node1));
+node2.<span class="fn">borrow_mut</span>().next = <span class="ty">Some</span>(<span class="ty">Rc</span>::<span class="fn">clone</span>(&amp;node3));
+node3.<span class="fn">borrow_mut</span>().prev = <span class="ty">Some</span>(<span class="ty">Rc</span>::<span class="fn">downgrade</span>(&amp;node2));
+
+<span class="fn">drop</span>(node1);
+<span class="fn">drop</span>(node2);
+
+<span class="kw">let</span> previous = {
+  <span class="kw">let</span> node3_ref = node3.<span class="fn">borrow</span>();
+  node3_ref.prev.<span class="fn">as_ref</span>().<span class="fn">and_then</span>(<span class="ty">Weak</span>::<span class="fn">upgrade</span>)
+};
+<span class="kw">match</span> previous {
+  <span class="ty">None</span> =&gt; <span class="mac">println!</span>(<span class="cm">/* node2 已析构 */</span>),
+  <span class="ty">Some</span>(_) =&gt; <span class="mac">unreachable!</span>(),
+}</code></pre>
+
+      <aside class="conclusion" aria-label="rc_05_no_leak 核心结论">
+        <div class="conclusion-title">链接完成后的稳态计数</div>
+        <div class="fact"><span class="fact-label">node1</span><span class="fact-value"><strong>strong 1</strong> · public weak 1</span></div>
+        <div class="fact"><span class="fact-label">node2</span><span class="fact-value"><strong>strong 2</strong> · public weak 1</span></div>
+        <div class="fact"><span class="fact-label">node3</span><span class="fact-value"><strong>strong 2</strong> · public weak 0</span></div>
+        <div class="fact"><span class="fact-label">可变边界</span><span class="fact-value"><code>RefCell&lt;Node&gt;</code> 用 1 个 borrow flag 管整个节点</span></div>
+        <div class="fact"><span class="fact-label">正向边</span><span class="fact-value"><code>next</code> 内是 <code>Rc</code>，目标 strong +1</span></div>
+        <div class="fact"><span class="fact-label">反向边</span><span class="fact-value"><code>prev</code> 内是 <code>Weak</code>，strong 不变</span></div>
+        <div class="fact"><span class="fact-label">最终结果</span><span class="fact-value">三个 value 和三块 <code>RcBox</code> <strong>全部回收</strong></span></div>
+      </aside>
+    </div>
+
+    <div class="callout warning">
+      <strong>原注释中 <code>node1</code> 的强计数应为 1，不是 2。</strong>
+      N1 的 <code>Node.next</code> 持有的是 node2，所以它只会让 node2.strong +1；N2 的 <code>Node.prev</code> 指回 node1，但那是 Weak，只增加 node1 的弱计数。
+    </div>
+  </section>
+
+  <section aria-labelledby="runtime-title">
+    <h2 id="runtime-title">二、逐步看栈、堆与引用计数</h2>
+
+    <div class="runtime-tool" id="runtime-tool">
+      <div class="runtime-toolbar" aria-label="内存状态步骤控制">
+        <button class="nav-btn" id="prev-step" type="button" aria-label="上一步" title="上一步">‹</button>
+        <div class="step-tabs" role="tablist" aria-label="rc_05_no_leak 运行时步骤">
+          <button class="step-tab" type="button" role="tab" data-step="0" aria-label="1 创建三节点" aria-selected="true"><span class="tab-label">1 创建三节点</span><span class="tab-short" aria-hidden="true">1</span></button>
+          <button class="step-tab" type="button" role="tab" data-step="1" aria-label="2 修改 node2 数据" aria-selected="false"><span class="tab-label">2 data → 20</span><span class="tab-short" aria-hidden="true">2</span></button>
+          <button class="step-tab" type="button" role="tab" data-step="2" aria-label="3 链接 1 和 2" aria-selected="false"><span class="tab-label">3 链接 1 ↔ 2</span><span class="tab-short" aria-hidden="true">3</span></button>
+          <button class="step-tab" type="button" role="tab" data-step="3" aria-label="4 链接 2 和 3" aria-selected="false"><span class="tab-label">4 链接 2 ↔ 3</span><span class="tab-short" aria-hidden="true">4</span></button>
+          <button class="step-tab" type="button" role="tab" data-step="4" aria-label="5 正向遍历" aria-selected="false"><span class="tab-label">5 正向遍历</span><span class="tab-short" aria-hidden="true">5</span></button>
+          <button class="step-tab" type="button" role="tab" data-step="5" aria-label="6 反向遍历" aria-selected="false"><span class="tab-label">6 反向遍历</span><span class="tab-short" aria-hidden="true">6</span></button>
+          <button class="step-tab" type="button" role="tab" data-step="6" aria-label="7 drop node1 和 node2" aria-selected="false"><span class="tab-label">7 drop 1 和 2</span><span class="tab-short" aria-hidden="true">7</span></button>
+          <button class="step-tab" type="button" role="tab" data-step="7" aria-label="8 函数返回" aria-selected="false"><span class="tab-label">8 函数返回</span><span class="tab-short" aria-hidden="true">8</span></button>
+        </div>
+        <button class="nav-btn" id="next-step" type="button" aria-label="下一步" title="下一步">›</button>
+      </div>
+
+      <div class="step-summary" aria-live="polite">
+        <div>
+          <div class="step-kicker" id="step-kicker">STEP 1 / 8 · ALLOCATE</div>
+          <div class="step-title" id="step-title">创建三个节点：栈上各放一个 Rc 句柄</div>
+          <div class="step-detail" id="step-detail">Rc::new 为每个 RefCell&lt;Node&gt; 分配独立 RcBox；此时 borrow=0，next / prev 都是 None。</div>
+        </div>
+        <div class="runtime-status">
+          <span class="count-pill" id="n1-pill">N1 <strong id="n1-summary">S1 · W0</strong></span>
+          <span class="count-pill" id="n2-pill">N2 <strong id="n2-summary">S1 · W0</strong></span>
+          <span class="count-pill" id="n3-pill">N3 <strong id="n3-summary">S1 · W0</strong></span>
+        </div>
+      </div>
+
+      <div class="memory-stage" id="memory-stage">
+        <section class="memory-zone stack-zone" aria-label="rc_05_no_leak 栈空间">
+          <div class="zone-header"><span class="zone-title">栈 STACK</span><span class="zone-meta">rc_05_no_leak() 逻辑栈帧</span></div>
+          <div class="address-axis"><span>高地址</span><span>→ 低地址</span></div>
+
+          <div class="stack-frame">
+            <div class="frame-title"><span>rc_05_no_leak()</span><span class="frame-sub">Rc / Weak 句柄 + 临时 Ref 守卫</span></div>
+            <div class="stack-row" id="row-node1">
+              <div class="stack-cell field">node1<span class="cell-sub">Rc&lt;RefCell&lt;Node&gt;&gt;</span></div>
+              <div class="stack-cell value" id="stack-node1">ptr = 0x…A000<span class="cell-sub">NonNull&lt;RcBox&lt;RefCell&lt;Node&gt;&gt;&gt;</span></div>
+              <div class="stack-cell size">8 B</div>
+            </div>
+            <div class="stack-row" id="row-node2">
+              <div class="stack-cell field">node2<span class="cell-sub">Rc&lt;RefCell&lt;Node&gt;&gt;</span></div>
+              <div class="stack-cell value" id="stack-node2">ptr = 0x…B000<span class="cell-sub">NonNull&lt;RcBox&lt;RefCell&lt;Node&gt;&gt;&gt;</span></div>
+              <div class="stack-cell size">8 B</div>
+            </div>
+            <div class="stack-row" id="row-node3">
+              <div class="stack-cell field">node3<span class="cell-sub">Rc&lt;RefCell&lt;Node&gt;&gt;</span></div>
+              <div class="stack-cell value" id="stack-node3">ptr = 0x…C000<span class="cell-sub">NonNull&lt;RcBox&lt;RefCell&lt;Node&gt;&gt;&gt;</span></div>
+              <div class="stack-cell size">8 B</div>
+            </div>
+            <div class="stack-row inactive" id="row-current">
+              <div class="stack-cell field">node_rc / current<span class="cell-sub">Rc&lt;RefCell&lt;Node&gt;&gt; / Option&lt;Rc&lt;…&gt;&gt;</span></div>
+              <div class="stack-cell value" id="stack-current">尚未声明<span class="cell-sub">遍历时为 8 B 指针 niche</span></div>
+              <div class="stack-cell size">8 B</div>
+            </div>
+            <div class="stack-row inactive" id="row-borrow-guard">
+              <div class="stack-cell field">node / node_ref<span class="cell-sub">Ref&lt;Node&gt; / RefMut&lt;Node&gt;</span></div>
+              <div class="stack-cell value weak-value" id="stack-borrow-guard">尚未创建<span class="cell-sub">value_ptr + borrow flag 守卫</span></div>
+              <div class="stack-cell size">≈ 16 B</div>
+            </div>
+            <div class="stack-row inactive" id="row-prev-result">
+              <div class="stack-cell field">prev<span class="cell-sub">Option&lt;Rc&lt;RefCell&lt;Node&gt;&gt;&gt;</span></div>
+              <div class="stack-cell value" id="stack-prev-result">尚未声明<span class="cell-sub">反向 upgrade 的结果</span></div>
+              <div class="stack-cell size">8 B</div>
+            </div>
+            <div class="frame-note" id="stack-note">三个 <code>Rc&lt;RefCell&lt;Node&gt;&gt;</code> 句柄各是一个指向堆分配的 8 B 指针。</div>
+          </div>
+
+          <div class="handle-anatomy" aria-label="Rc Weak 和 Ref 栈句柄结构">
+            <div class="handle-title">栈上句柄结构（Global 分配器是零大小）</div>
+            <div class="handle-pair">
+              <div class="handle-box">
+                <div class="handle-name">Rc&lt;T&gt; · 8 B</div>
+                <div class="handle-field">ptr: NonNull&lt;RcBox&lt;T&gt;&gt;</div>
+                <div class="handle-foot">clone 复制 ptr，并使 strong +1</div>
+              </div>
+              <div class="handle-box weak">
+                <div class="handle-name">Weak&lt;T&gt; · 8 B</div>
+                <div class="handle-field">ptr: NonNull&lt;RcBox&lt;T&gt;&gt;</div>
+                <div class="handle-foot">downgrade / clone 使 public weak +1</div>
+              </div>
+              <div class="handle-box borrow">
+                <div class="handle-name">Ref / RefMut&lt;T&gt; · 通常 16 B</div>
+                <div class="handle-field">value ptr + borrow guard</div>
+                <div class="handle-foot">存活期内使 borrow flag = 1 / -1</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="memory-zone heap-zone" aria-label="三个 RcBox RefCell Node 堆分配">
+          <div class="zone-header"><span class="zone-title">堆 HEAP</span><span class="zone-meta">RcBox&lt;RefCell&lt;Node&gt;&gt; 概念大小 ≈ 48 B / 个</span></div>
+          <div class="allocations">
+            <article class="allocation" id="alloc-n1">
+              <div class="alloc-title"><span>RcBox&lt;RefCell&lt;Node { data: 1 }&gt;&gt; · ≈ 48 B</span><span class="alloc-address">0x…A000</span></div>
+              <div class="rcbox-grid">
+                <div class="heap-row"><div class="heap-cell label">strong: Cell&lt;usize&gt;</div><div class="heap-cell counter" id="n1-strong">1</div><div class="heap-cell">8 B</div></div>
+                <div class="heap-row"><div class="heap-cell label">weak: Cell&lt;usize&gt;</div><div class="heap-cell counter weak-counter" id="n1-weak">1 = public 0 + implicit 1</div><div class="heap-cell">8 B</div></div>
+                <div class="heap-row"><div class="heap-cell label">value.borrow</div><div class="heap-cell counter borrow-counter node-value" id="n1-borrow">0 = UNUSED</div><div class="heap-cell">8 B</div></div>
+                <div class="heap-row"><div class="heap-cell label">value.value.data</div><div class="heap-cell value node-value" id="n1-data">1</div><div class="heap-cell">4 B</div></div>
+                <div class="heap-row"><div class="heap-cell label">value.value.padding</div><div class="heap-cell value node-value">alignment padding（概念示意）</div><div class="heap-cell">4 B</div></div>
+                <div class="heap-row"><div class="heap-cell label">value.value.next</div><div class="heap-cell value node-value none" id="n1-next">None</div><div class="heap-cell">8 B</div></div>
+                <div class="heap-row"><div class="heap-cell label">value.value.prev</div><div class="heap-cell value node-value none" id="n1-prev">None</div><div class="heap-cell">8 B</div></div>
+              </div>
+              <div class="alloc-foot" id="n1-foot">RcBox 头 16 B + RefCell.borrow 8 B + Node 约 24 B = 48 B</div>
+            </article>
+
+            <article class="allocation" id="alloc-n2">
+              <div class="alloc-title"><span id="n2-alloc-title">RcBox&lt;RefCell&lt;Node { data: 2 }&gt;&gt; · ≈ 48 B</span><span class="alloc-address">0x…B000</span></div>
+              <div class="rcbox-grid">
+                <div class="heap-row"><div class="heap-cell label">strong: Cell&lt;usize&gt;</div><div class="heap-cell counter" id="n2-strong">1</div><div class="heap-cell">8 B</div></div>
+                <div class="heap-row"><div class="heap-cell label">weak: Cell&lt;usize&gt;</div><div class="heap-cell counter weak-counter" id="n2-weak">1 = public 0 + implicit 1</div><div class="heap-cell">8 B</div></div>
+                <div class="heap-row"><div class="heap-cell label">value.borrow</div><div class="heap-cell counter borrow-counter node-value" id="n2-borrow">0 = UNUSED</div><div class="heap-cell">8 B</div></div>
+                <div class="heap-row"><div class="heap-cell label">value.value.data</div><div class="heap-cell value node-value" id="n2-data">2</div><div class="heap-cell">4 B</div></div>
+                <div class="heap-row"><div class="heap-cell label">value.value.padding</div><div class="heap-cell value node-value">alignment padding（概念示意）</div><div class="heap-cell">4 B</div></div>
+                <div class="heap-row"><div class="heap-cell label">value.value.next</div><div class="heap-cell value node-value none" id="n2-next">None</div><div class="heap-cell">8 B</div></div>
+                <div class="heap-row"><div class="heap-cell label">value.value.prev</div><div class="heap-cell value node-value none" id="n2-prev">None</div><div class="heap-cell">8 B</div></div>
+              </div>
+              <div class="alloc-foot" id="n2-foot">RcBox 头 16 B + RefCell.borrow 8 B + Node 约 24 B = 48 B</div>
+            </article>
+
+            <article class="allocation" id="alloc-n3">
+              <div class="alloc-title"><span>RcBox&lt;RefCell&lt;Node { data: 3 }&gt;&gt; · ≈ 48 B</span><span class="alloc-address">0x…C000</span></div>
+              <div class="rcbox-grid">
+                <div class="heap-row"><div class="heap-cell label">strong: Cell&lt;usize&gt;</div><div class="heap-cell counter" id="n3-strong">1</div><div class="heap-cell">8 B</div></div>
+                <div class="heap-row"><div class="heap-cell label">weak: Cell&lt;usize&gt;</div><div class="heap-cell counter weak-counter" id="n3-weak">1 = public 0 + implicit 1</div><div class="heap-cell">8 B</div></div>
+                <div class="heap-row"><div class="heap-cell label">value.borrow</div><div class="heap-cell counter borrow-counter node-value" id="n3-borrow">0 = UNUSED</div><div class="heap-cell">8 B</div></div>
+                <div class="heap-row"><div class="heap-cell label">value.value.data</div><div class="heap-cell value node-value" id="n3-data">3</div><div class="heap-cell">4 B</div></div>
+                <div class="heap-row"><div class="heap-cell label">value.value.padding</div><div class="heap-cell value node-value">alignment padding（概念示意）</div><div class="heap-cell">4 B</div></div>
+                <div class="heap-row"><div class="heap-cell label">value.value.next</div><div class="heap-cell value node-value none" id="n3-next">None</div><div class="heap-cell">8 B</div></div>
+                <div class="heap-row"><div class="heap-cell label">value.value.prev</div><div class="heap-cell value node-value none" id="n3-prev">None</div><div class="heap-cell">8 B</div></div>
+              </div>
+              <div class="alloc-foot" id="n3-foot">RcBox 头 16 B + RefCell.borrow 8 B + Node 约 24 B = 48 B</div>
+            </article>
+          </div>
+        </section>
+
+        <svg class="pointer-layer" id="pointer-layer" aria-hidden="true">
+          <defs>
+            <marker id="arrow-stack" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><path class="marker-stack" d="M0,0 L8,3 L0,6 Z"></path></marker>
+            <marker id="arrow-strong" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><path class="marker-strong" d="M0,0 L8,3 L0,6 Z"></path></marker>
+            <marker id="arrow-weak" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><path class="marker-weak" d="M0,0 L8,3 L0,6 Z"></path></marker>
+            <marker id="arrow-borrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><path class="marker-borrow" d="M0,0 L8,3 L0,6 Z"></path></marker>
+          </defs>
+          <g id="pointer-paths"></g>
+        </svg>
+      </div>
+
+      <div class="legend" aria-label="内存连线图例">
+        <span class="legend-item"><span class="line-swatch stack"></span>栈上 Rc 句柄</span>
+        <span class="legend-item"><span class="line-swatch strong"></span>正向 Rc 强引用</span>
+        <span class="legend-item"><span class="line-swatch weak"></span>反向 Weak 弱引用</span>
+        <span class="legend-item"><span class="line-swatch borrow"></span>Ref / RefMut 借用守卫</span>
+        <span class="legend-item"><span class="swatch tombstone"></span>value 已析构，RcBox 头仍在</span>
+        <span class="legend-item"><span class="swatch freed"></span>整块已回收</span>
+      </div>
+    </div>
+
+    <div class="callout warning">
+      <strong>堆上的 <code>weak: Cell&lt;usize&gt;</code> 与 <code>Rc::weak_count()</code> 不是同一个数。</strong>
+      strong &gt; 0 时，标准库在 RcBox 中保留 1 个隐式 weak。因此链接完成后 node1 的底层 weak 单元是 2 = public 1 + implicit 1，而 <code>Rc::weak_count(&amp;node1)</code> 返回 1。
+    </div>
+    <div class="callout">
+      <strong>字段路径中的两个 <code>value</code> 分属两层容器。</strong>
+      <code>RcBox.value</code> 是 <code>RefCell&lt;Node&gt;</code>；<code>RcBox.value.borrow</code> 是 8 B 借用标志，<code>RcBox.value.value</code> 才是包在 <code>UnsafeCell</code> 中的 Node，所以 <code>value.value.data</code> 表示 Node.data。
+    </div>
+  </section>
+
+  <section aria-labelledby="layout-title">
+    <h2 id="layout-title">三、Rc、Weak、RefCell 和 Node 每一层放了什么</h2>
+    <table class="layout-table">
+      <thead><tr><th>位置 / 类型</th><th>64 位示意大小</th><th>存放内容</th><th>对计数的影响</th></tr></thead>
+      <tbody>
+        <tr><td>栈：<code>Rc&lt;RefCell&lt;Node&gt;&gt;</code></td><td>8 B</td><td>指向 <code>RcBox&lt;RefCell&lt;Node&gt;&gt;</code> 的非空指针</td><td>每个活着的 Rc 对应 strong +1</td></tr>
+        <tr><td>栈 / Node 内：<code>Weak&lt;RefCell&lt;Node&gt;&gt;</code></td><td>8 B</td><td>指向同一 RcBox，但不保证 RefCell&lt;Node&gt; 存活</td><td>public weak +1，strong 不变</td></tr>
+        <tr><td>栈：<code>Option&lt;Rc/Weak&gt;</code></td><td>8 B</td><td>利用非空指针的 null niche 表示 None</td><td>Some 内句柄存活时才计数</td></tr>
+        <tr><td>栈：<code>Ref&lt;Node&gt;</code> / <code>RefMut&lt;Node&gt;</code></td><td>通常 16 B</td><td>Node 指针 + 指向 borrow flag 的守卫</td><td>存活期内使 borrow = 1 / -1</td></tr>
+        <tr><td>堆：<code>RcBox</code> 头</td><td>16 B</td><td>strong 8 B + weak 8 B</td><td>strong=0 析构 RefCell&lt;Node&gt;；weak=0 回收整块分配</td></tr>
+        <tr><td>堆：<code>RefCell&lt;Node&gt;</code></td><td>约 32 B</td><td>borrow flag 8 B + Node 24 B</td><td>1 个 borrow flag 管理整个 Node</td></tr>
+        <tr><td>堆：<code>Node</code></td><td>约 24 B</td><td>i32 4 B + 对齐 4 B + next 8 B + prev 8 B</td><td>next 内 Rc 计 strong；prev 内 Weak 计 weak</td></tr>
+        <tr><td>堆：完整 <code>RcBox&lt;RefCell&lt;Node&gt;&gt;</code></td><td>约 48 B</td><td>RcBox 头 16 B + RefCell&lt;Node&gt; 32 B</td><td>一块连续堆分配</td></tr>
+      </tbody>
+    </table>
+
+    <div class="two-col">
+      <div class="explain-block">
+        <h3>为什么 node2 会留下“空壳”</h3>
+        <p><code>drop(node2)</code> 后 node2.strong 到 0，其 <code>RefCell&lt;Node&gt;</code> value 立即析构。但 <code>node3.borrow().prev</code> 还保存一个 Weak，所以存放 strong/weak 的 RcBox 头仍在。<code>upgrade()</code> 只读 strong=0 就返回 None，不会访问已析构的 value。</p>
+      </div>
+      <div class="explain-block">
+        <h3>遍历中的瞬时计数</h3>
+        <p>正向遍历中，<code>node_rc</code> 使当前节点 strong 临时 +1，<code>node_rc.borrow()</code> 又使同一分配中的 borrow flag 临时变为 1。反向 <code>Weak::upgrade</code> 成功时产生临时 Rc，但不改变 weak 计数。</p>
+      </div>
+    </div>
+
+    <div class="callout">
+      大小与字段是常见 64 位目标、默认 <code>Global</code> 分配器下的概念图。<code>repr(Rust)</code> 的字段顺序与 <code>Rc</code> / <code>Weak</code> ABI 都不是语言稳定保证，实际结果以当前目标和标准库实现为准。
+    </div>
+  </section>
+
+  <section aria-labelledby="drop-title">
+    <h2 id="drop-title">四、drop 之后的精确传导顺序</h2>
+    <div class="drop-flow" aria-label="rc_05_no_leak 析构传导链">
+      <div class="flow-item"><span class="flow-code">drop(node1)</span><span class="flow-text">N1.strong：1 → 0</span></div>
+      <div class="flow-item"><span class="flow-code">drop(N1 RefCell&lt;Node&gt;)</span><span class="flow-text">N1.next 使 N2.strong：2 → 1</span></div>
+      <div class="flow-item"><span class="flow-code">drop(node2)</span><span class="flow-text">N2.strong：1 → 0，value 析构</span></div>
+      <div class="flow-item"><span class="flow-code">drop(N2.next)</span><span class="flow-text">N3.strong：2 → 1</span></div>
+      <div class="flow-item"><span class="flow-code">upgrade(N3.prev)</span><span class="flow-text">读到 N2.strong=0，返回 None</span></div>
+      <div class="flow-item"><span class="flow-code">drop(node3)</span><span class="flow-text">释放 N2 空壳、N3 value 与 RcBox</span></div>
+    </div>
+
+    <div class="callout success">
+      <strong>Weak 打破的不是“指针可达性”，而是 strong 所有权环。</strong>
+      1 → 2 → 3 的 next 是单向强所有链，反向 prev 只提供可检查的导航。因此从头部 drop 时，strong 能顺着 next 一直传导到 0。
+    </div>
+  </section>
+
+  <footer class="footer">Rust Rc / Weak 内存布局 · 对应 src/ptr_02_rc.rs::rc_05_no_leak · 2026-08-05</footer>
+</main>
+
+<script>
+(() => {
+  const tool = document.getElementById('runtime-tool');
+  const stage = document.getElementById('memory-stage');
+  const tabs = Array.from(tool.querySelectorAll('.step-tab'));
+  const prev = document.getElementById('prev-step');
+  const next = document.getElementById('next-step');
+  const kicker = document.getElementById('step-kicker');
+  const stepTitle = document.getElementById('step-title');
+  const stepDetail = document.getElementById('step-detail');
+  const pointerPaths = document.getElementById('pointer-paths');
+
+  const nodes = [1, 2, 3].map(number => ({
+    number,
+    row: document.getElementById(`row-node${number}`),
+    stack: document.getElementById(`stack-node${number}`),
+    alloc: document.getElementById(`alloc-n${number}`),
+    strong: document.getElementById(`n${number}-strong`),
+    weak: document.getElementById(`n${number}-weak`),
+    borrow: document.getElementById(`n${number}-borrow`),
+    data: document.getElementById(`n${number}-data`),
+    next: document.getElementById(`n${number}-next`),
+    prev: document.getElementById(`n${number}-prev`),
+    foot: document.getElementById(`n${number}-foot`),
+    pill: document.getElementById(`n${number}-pill`),
+    summary: document.getElementById(`n${number}-summary`)
+  }));
+
+  const rowCurrent = document.getElementById('row-current');
+  const stackCurrent = document.getElementById('stack-current');
+  const rowBorrowGuard = document.getElementById('row-borrow-guard');
+  const stackBorrowGuard = document.getElementById('stack-borrow-guard');
+  const rowPrevResult = document.getElementById('row-prev-result');
+  const stackPrevResult = document.getElementById('stack-prev-result');
+  const stackNote = document.getElementById('stack-note');
+  const n2AllocTitle = document.getElementById('n2-alloc-title');
+
+  const stateCopy = [
+    ['ALLOCATE', '创建三个节点：栈上各放一个 Rc 句柄', 'Rc::new 为每个 RefCell<Node> 分配独立 RcBox；此时 borrow=0，next / prev 都是 None。'],
+    ['BORROW_MUT', '修改 node2.data：整个 Node 被可变借用', 'borrow_mut() 产生栈上 RefMut<Node> 守卫，使 N2.value.borrow 临时从 0 变为 -1；data 写成 20。'],
+    ['LINK 1 ↔ 2', '建立 node1.next 和 node2.prev', 'next 里的 Rc 使 N2.strong 1 → 2；prev 里的 Weak 使 N1.public weak 0 → 1。'],
+    ['LINK 2 ↔ 3', '链接完成：正向强所有，反向弱导航', 'N3.strong 变为 2，N2.public weak 变为 1；没有任何反向 strong，因此不存在强引用环。'],
+    ['FORWARD', '正向遍历经过 node2 的瞬间', 'node_rc 使 N2.strong 短暂为 3；node_rc.borrow() 产生 Ref<Node>，使 N2.value.borrow = 1。'],
+    ['BACKWARD', '反向遍历：已从 node2.prev upgrade 出 N1', 'N2 被 Ref<Node> 共享借用；Weak::upgrade 产生指向 N1 的临时 Rc，使 N1.strong 短暂为 2，weak 计数不变。'],
+    ['DROP 1 + 2', 'node1 已回收；node2 value 已析构，RcBox 头仍在', 'N3.prev 保留着指向 N2 RcBox 的 Weak。N2.strong=0，upgrade() 返回 None，因此不会读取已析构的 Node。'],
+    ['RETURN', '函数返回：三个 RcBox 全部回收', 'drop(node3) 析构 N3.value，其 prev Weak 使 N2.weak 1 → 0，回收 N2 分配；随后 N3 分配也被回收。']
+  ];
+
+  const states = [
+    { s: [1, 1, 1], w: [0, 0, 0], b: [0, 0, 0], data: [1, 2, 3], links: 0, stack: 'base', alloc: ['active', 'active', 'active'] },
+    { s: [1, 1, 1], w: [0, 0, 0], b: [0, -1, 0], data: [1, 20, 3], links: 0, stack: 'mutate', alloc: ['active', 'active', 'active'] },
+    { s: [1, 2, 1], w: [1, 0, 0], b: [0, 0, 0], data: [1, 20, 3], links: 1, stack: 'base', alloc: ['active', 'active', 'active'] },
+    { s: [1, 2, 2], w: [1, 1, 0], b: [0, 0, 0], data: [1, 20, 3], links: 2, stack: 'base', alloc: ['active', 'active', 'active'] },
+    { s: [1, 3, 2], w: [1, 1, 0], b: [0, 1, 0], data: [1, 20, 3], links: 2, stack: 'forward', alloc: ['active', 'active', 'active'] },
+    { s: [2, 3, 2], w: [1, 1, 0], b: [0, 1, 0], data: [1, 20, 3], links: 2, stack: 'backward', alloc: ['active', 'active', 'active'] },
+    { s: [0, 0, 1], w: [0, 1, 0], b: [0, 0, 0], data: [1, 20, 3], links: 2, stack: 'after-drop', alloc: ['freed', 'tombstone', 'active'] },
+    { s: [0, 0, 0], w: [0, 0, 0], b: [0, 0, 0], data: [1, 20, 3], links: 0, stack: 'returned', alloc: ['freed', 'freed', 'freed'] }
+  ];
+
+  let current = 0;
+
+  function setEdge(element, text, kind) {
+    element.textContent = text;
+    element.classList.toggle('none', kind === 'none');
+    element.classList.toggle('edge-strong', kind === 'strong');
+    element.classList.toggle('edge-weak', kind === 'weak');
+  }
+
+  function setRowState(row, state) {
+    row.classList.toggle('inactive', state === 'inactive');
+    row.classList.toggle('dropped', state === 'dropped');
+  }
+
+  function setAllocationState(element, state) {
+    element.classList.toggle('tombstone', state === 'tombstone');
+    element.classList.toggle('freed', state === 'freed');
+  }
+
+  function svgNode(name, attrs) {
+    const node = document.createElementNS('http://www.w3.org/2000/svg', name);
+    Object.entries(attrs).forEach(([key, value]) => node.setAttribute(key, value));
+    return node;
+  }
+
+  function drawLink(source, target, kind, route = 'horizontal') {
+    if (!source || !target || source.getClientRects().length === 0 || target.getClientRects().length === 0) return;
+    const s = source.getBoundingClientRect();
+    const t = target.getBoundingClientRect();
+    const base = stage.getBoundingClientRect();
+    let sx;
+    let sy;
+    let tx;
+    let ty;
+    let d;
+
+    if (route === 'right-loop') {
+      sx = s.right - base.left;
+      sy = s.top - base.top + s.height / 2;
+      tx = t.right - base.left - 8;
+      ty = t.top - base.top + 22;
+      const loopX = Math.max(sx, tx) + 27;
+      d = `M ${sx} ${sy} C ${loopX} ${sy}, ${loopX} ${ty}, ${tx} ${ty}`;
+    } else if (route === 'left-loop') {
+      sx = s.left - base.left;
+      sy = s.top - base.top + s.height / 2;
+      tx = t.left - base.left + 8;
+      ty = t.top - base.top + 22;
+      const loopX = Math.min(sx, tx) - 22;
+      d = `M ${sx} ${sy} C ${loopX} ${sy}, ${loopX} ${ty}, ${tx} ${ty}`;
+    } else {
+      sx = s.right - base.left;
+      sy = s.top - base.top + s.height / 2;
+      tx = t.left - base.left + 7;
+      ty = t.top - base.top + 22;
+      const mid = sx + (tx - sx) / 2;
+      d = `M ${sx} ${sy} C ${mid} ${sy}, ${mid} ${ty}, ${tx} ${ty}`;
+    }
+
+    pointerPaths.appendChild(svgNode('path', {
+      d,
+      class: `pointer-line ${kind}`,
+      'marker-end': `url(#arrow-${kind})`
+    }));
+  }
+
+  function drawPointers() {
+    const state = states[current];
+    pointerPaths.replaceChildren();
+
+    nodes.forEach((node, index) => {
+      if (state.alloc[index] === 'active' && !(state.stack === 'after-drop' && index < 2)) {
+        drawLink(node.stack, node.alloc, 'stack');
+      }
+    });
+
+    if (state.links >= 1 && state.alloc[0] === 'active' && state.alloc[1] === 'active') {
+      drawLink(nodes[0].next, nodes[1].alloc, 'strong', 'right-loop');
+      drawLink(nodes[1].prev, nodes[0].alloc, 'weak', 'left-loop');
+    }
+    if (state.links >= 2 && state.alloc[1] === 'active' && state.alloc[2] === 'active') {
+      drawLink(nodes[1].next, nodes[2].alloc, 'strong', 'right-loop');
+      drawLink(nodes[2].prev, nodes[1].alloc, 'weak', 'left-loop');
+    } else if (state.stack === 'after-drop') {
+      drawLink(nodes[2].prev, nodes[1].alloc, 'weak', 'left-loop');
+    }
+    if (state.stack === 'forward' || state.stack === 'backward') {
+      drawLink(stackCurrent, nodes[1].alloc, 'stack');
+    }
+    if (state.stack === 'mutate' || state.stack === 'forward' || state.stack === 'backward') {
+      drawLink(stackBorrowGuard, nodes[1].borrow, 'borrow');
+    }
+    if (state.stack === 'backward') {
+      drawLink(stackPrevResult, nodes[0].alloc, 'strong');
+    }
+  }
+
+  function renderStack(mode) {
+    const afterDrop = mode === 'after-drop';
+    const returned = mode === 'returned';
+    nodes.forEach((node, index) => {
+      const dropped = returned || (afterDrop && index < 2);
+      setRowState(node.row, dropped ? 'dropped' : 'active');
+      node.stack.innerHTML = dropped
+        ? 'dropped<span class="cell-sub">ptr 不再存在</span>'
+        : `ptr = 0x…${String.fromCharCode(65 + index)}000<span class="cell-sub">NonNull&lt;RcBox&lt;RefCell&lt;Node&gt;&gt;&gt;</span>`;
+    });
+
+    if (mode === 'mutate') {
+      setRowState(rowCurrent, 'inactive');
+      setRowState(rowBorrowGuard, 'active');
+      setRowState(rowPrevResult, 'inactive');
+      stackCurrent.innerHTML = '尚未声明<span class="cell-sub">遍历尚未开始</span>';
+      stackBorrowGuard.innerHTML = 'RefMut&lt;Node&gt; → N2.value<span class="cell-sub">value_ptr + exclusive borrow guard</span>';
+      stackPrevResult.innerHTML = '尚未声明<span class="cell-sub">反向 upgrade 的结果</span>';
+      stackNote.innerHTML = '<code>borrow_mut()</code> 返回的 RefMut 存活期内，N2 整个 Node 被独占借用，borrow = -1。';
+    } else if (mode === 'forward') {
+      setRowState(rowCurrent, 'active');
+      setRowState(rowBorrowGuard, 'active');
+      setRowState(rowPrevResult, 'inactive');
+      stackCurrent.innerHTML = 'node_rc → 0x…B000<span class="cell-sub">current 的 Rc 已 move 入 node_rc</span>';
+      stackBorrowGuard.innerHTML = 'Ref&lt;Node&gt; → N2.value<span class="cell-sub">N2.value.borrow = 1 shared</span>';
+      stackPrevResult.innerHTML = '尚未声明<span class="cell-sub">反向 upgrade 的结果</span>';
+      stackNote.innerHTML = '当前正在访问 N2：<code>node_rc</code> 使 strong = 3，<code>node_rc.borrow()</code> 使 borrow = 1。';
+    } else if (mode === 'backward') {
+      setRowState(rowCurrent, 'active');
+      setRowState(rowBorrowGuard, 'active');
+      setRowState(rowPrevResult, 'active');
+      stackCurrent.innerHTML = 'node_rc → 0x…B000<span class="cell-sub">N2.strong 临时 +1</span>';
+      stackBorrowGuard.innerHTML = 'Ref&lt;Node&gt; → N2.value<span class="cell-sub">N2.value.borrow = 1 shared</span>';
+      stackPrevResult.innerHTML = 'Some(Rc → 0x…A000)<span class="cell-sub">Weak::upgrade 使 N1.strong +1</span>';
+      stackNote.innerHTML = '图示时点是 <code>Weak::upgrade</code> 成功后；它新建临时 Rc，不会 clone 或增加 Weak。';
+    } else if (mode === 'after-drop') {
+      setRowState(rowCurrent, 'active');
+      setRowState(rowBorrowGuard, 'dropped');
+      setRowState(rowPrevResult, 'active');
+      stackCurrent.innerHTML = 'None<span class="cell-sub">反向遍历已结束</span>';
+      stackBorrowGuard.innerHTML = 'dropped<span class="cell-sub">node3_ref 已离开借用块</span>';
+      stackPrevResult.innerHTML = 'None<span class="cell-sub">N2.strong = 0，upgrade 失败</span>';
+      stackNote.innerHTML = '只有 <code>node3</code> 栈句柄仍存活；<code>node3.prev</code> 的 Weak 让 N2 RcBox 头保留。';
+    } else if (mode === 'returned') {
+      setRowState(rowCurrent, 'dropped');
+      setRowState(rowBorrowGuard, 'dropped');
+      setRowState(rowPrevResult, 'dropped');
+      stackCurrent.innerHTML = 'dropped<span class="cell-sub">Option::None</span>';
+      stackBorrowGuard.innerHTML = 'dropped<span class="cell-sub">不再存在</span>';
+      stackPrevResult.innerHTML = 'dropped<span class="cell-sub">Option::None</span>';
+      stackNote.innerHTML = '栈帧已撤销；栈上 Rc / Weak 句柄和堆上 RcBox 都不再存在。';
+    } else {
+      setRowState(rowCurrent, 'inactive');
+      setRowState(rowBorrowGuard, 'inactive');
+      setRowState(rowPrevResult, 'inactive');
+      stackCurrent.innerHTML = '尚未声明<span class="cell-sub">遍历时为 8 B 指针 niche</span>';
+      stackBorrowGuard.innerHTML = '尚未创建<span class="cell-sub">value_ptr + borrow flag 守卫</span>';
+      stackPrevResult.innerHTML = '尚未声明<span class="cell-sub">反向 upgrade 的结果</span>';
+      stackNote.innerHTML = '三个 <code>Rc&lt;RefCell&lt;Node&gt;&gt;</code> 句柄各是一个指向堆分配的 8 B 指针。';
+    }
+  }
+
+  function render() {
+    const state = states[current];
+    const copy = stateCopy[current];
+    tabs.forEach((tab, index) => tab.setAttribute('aria-selected', String(index === current)));
+    prev.disabled = current === 0;
+    next.disabled = current === tabs.length - 1;
+    kicker.textContent = `STEP ${current + 1} / ${tabs.length} · ${copy[0]}`;
+    stepTitle.textContent = copy[1];
+    stepDetail.textContent = copy[2];
+
+    nodes.forEach((node, index) => {
+      const allocState = state.alloc[index];
+      setAllocationState(node.alloc, allocState);
+      node.pill.classList.toggle('tombstone', allocState === 'tombstone');
+      node.pill.classList.toggle('freed', allocState === 'freed');
+
+      if (allocState === 'freed') {
+        node.strong.textContent = '0 → allocation freed';
+        node.weak.textContent = '0 → allocation freed';
+        node.borrow.textContent = 'dropped with RefCell<Node>';
+        node.summary.textContent = 'S0 · 已回收';
+      } else {
+        const strong = state.s[index];
+        const publicWeak = state.w[index];
+        const implicit = strong > 0 ? 1 : 0;
+        node.strong.textContent = allocState === 'tombstone' ? '0 = value already dropped' : String(strong);
+        node.weak.textContent = `${publicWeak + implicit} = public ${publicWeak} + implicit ${implicit}`;
+        node.summary.textContent = allocState === 'tombstone' ? 'S0 · W1 · 空壳' : `S${strong} · W${publicWeak}`;
+        const borrow = state.b[index];
+        node.borrow.textContent = allocState === 'tombstone'
+          ? 'dropped with RefCell<Node>'
+          : borrow === -1
+            ? '-1 = WRITING (RefMut)'
+            : borrow === 1
+              ? '1 = 1 shared (Ref)'
+              : '0 = UNUSED';
+      }
+      node.borrow.classList.toggle('is-writing', allocState === 'active' && state.b[index] === -1);
+      node.borrow.classList.toggle('is-reading', allocState === 'active' && state.b[index] === 1);
+      node.data.textContent = String(state.data[index]);
+    });
+    n2AllocTitle.textContent = `RcBox<RefCell<Node { data: ${state.data[1]} }>> · ≈ 48 B`;
+
+    const firstLink = state.links >= 1;
+    const secondLink = state.links >= 2;
+    setEdge(nodes[0].next, firstLink ? 'Some(Rc → N2)' : 'None', firstLink ? 'strong' : 'none');
+    setEdge(nodes[1].prev, firstLink ? 'Some(Weak ⇢ N1)' : 'None', firstLink ? 'weak' : 'none');
+    setEdge(nodes[1].next, secondLink ? 'Some(Rc → N3)' : 'None', secondLink ? 'strong' : 'none');
+    setEdge(nodes[2].prev, secondLink ? 'Some(Weak ⇢ N2)' : 'None', secondLink ? 'weak' : 'none');
+
+    if (state.alloc[0] === 'freed') {
+      nodes[0].foot.textContent = '已回收：N2 Node.prev 中的 Weak 在 drop(node2) 时析构，N1.weak 降到 0';
+    } else {
+      nodes[0].foot.textContent = 'RcBox 头 16 B + RefCell.borrow 8 B + Node 约 24 B = 48 B';
+    }
+    if (state.alloc[1] === 'tombstone') {
+      nodes[1].foot.textContent = 'RefCell<Node> value 已析构；仅 RcBox 计数头 / 分配仍被 N3.prev 的 Weak 保留';
+    } else if (state.alloc[1] === 'freed') {
+      nodes[1].foot.textContent = '已回收：drop(N3 Node.prev) 使 N2.weak 1 → 0';
+    } else {
+      nodes[1].foot.textContent = 'RcBox 头 16 B + RefCell.borrow 8 B + Node 约 24 B = 48 B';
+    }
+    nodes[2].foot.textContent = state.alloc[2] === 'freed'
+      ? '已回收：N3.strong 和 N3.weak 都已降到 0'
+      : 'RcBox 头 16 B + RefCell.borrow 8 B + Node 约 24 B = 48 B';
+
+    renderStack(state.stack);
+    window.requestAnimationFrame(drawPointers);
+  }
+
+  tabs.forEach((tab, index) => tab.addEventListener('click', () => {
+    current = index;
+    render();
+  }));
+  prev.addEventListener('click', () => {
+    current = Math.max(0, current - 1);
+    render();
+  });
+  next.addEventListener('click', () => {
+    current = Math.min(tabs.length - 1, current + 1);
+    render();
+  });
+  window.addEventListener('resize', drawPointers);
+  window.addEventListener('load', drawPointers);
+  render();
+})();
+</script>
+</body>
+</html>
