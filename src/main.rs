@@ -19,25 +19,18 @@ fn main() {
   let linked_queue = LinkedList::from([1, 2, 3]);
 
   /*----------------- 可变字符串 -----------------*/
-  let mut mutable_string = String::from("hello");
-  mutable_string.push_str(" world!");
+  // 可变字符串
+  let mut owned: String = String::from("hello"); 
+  
+  // 写指针，指向 栈上的 24B String
+  let string_ref: &mut String = &mut owned;
+  string_ref.push_str(" world!");
 
-  let borrowed_string = &mutable_string;
-
-  // Error: the trait `Sized` is not implemented for `str`
-  // let fat_str = *mutable_string;
-
-  /*
-    String 实现了 Deref Trait
-    1. 只有 *mutable_string 会触发 它，并获取到 str 类型的数据
-    2. 再取地址即可得到 &str
-  */
-  let fat_str = &*mutable_string;
-
-  let my_str = &mutable_string[1..2];
-  let my_str = &borrowed_string[1..2];
-  let my_str = &fat_str[1..2];
-
+  // 只读指针，直接指向堆上数据， 等价于 &*owned，常用
+  let slice: &str = &owned;
+  
+  // 直接指向 .rodata
+  let literal: &'static str = "hello"; 
   /*----------------- Set -----------------*/
   /*
     HashSet, 数据无序
@@ -142,13 +135,6 @@ fn main() {
   );
   println!("queue: {:?} 初始化容器大小：{}", queue, queue_cap);
   println!("train: {:?}", linked_queue);
-  println!("mutable_string: {:?}", mutable_string);
-  println!(
-    "borrowed_string: {:?}, 地址: {:p}",
-    borrowed_string, borrowed_string
-  );
-  println!("fat_str: {:?}, 地址: {:p}", fat_str, fat_str);
-  println!("my_str (from fat_str): {:?}, 地址: {:p}", my_str, my_str);
   println!("hash_set: {:?}", hash_set);
   println!("index_set: {:?}", index_set);
   println!("b_tree_set: {:?}", b_tree_set);
