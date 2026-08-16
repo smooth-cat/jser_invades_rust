@@ -1,3 +1,6 @@
 pub mod animal;
-pub mod ptr_01_box;
-pub mod ptr_02_rc;
+pub mod enum_01_base;
+pub mod enum_01_option;
+pub mod enum_02_sugar;
+pub mod enum_04_msg;
+pub mod util;
