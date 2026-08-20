@@ -1,0 +1,322 @@
+// WARNING: This output format is intended for human consumers only
+// and is subject to change without notice. Knock yourself out.
+// HINT: See also -Z dump-mir for MIR at specific points during compilation.
+fn foo() -> {async fn body of foo()} {
+    let mut _0: {async fn body of foo()};
+
+    bb0: {
+        _0 = {coroutine@example.rs:4:27: 6:2 (#0)};
+        return;
+    }
+}
+
+fn foo::{closure#0}(_1: Pin<&mut {async fn body of foo()}>, _2: &mut Context<'_>) -> Poll<i32> {
+    debug _task_context => _2;
+    let mut _0: std::task::Poll<i32>;
+    let mut _3: u32;
+    let mut _4: &mut {async fn body of foo()};
+
+    bb0: {
+        _4 = copy (_1.0: &mut {async fn body of foo()});
+        _3 = discriminant((*_4));
+        switchInt(move _3) -> [0: bb1, 1: bb2, otherwise: bb3];
+    }
+
+    bb1: {
+        _0 = Poll::<i32>::Ready(const 10_i32);
+        discriminant((*_4)) = 1;
+        return;
+    }
+
+    bb2: {
+        assert(const false, "`async fn` resumed after completion") -> [success: bb2, unwind continue];
+    }
+
+    bb3: {
+        unreachable;
+    }
+}
+
+fn bar(_1: i32) -> {async fn body of bar()} {
+    debug a => _1;
+    let mut _0: {async fn body of bar()};
+
+    bb0: {
+        _0 = {coroutine@example.rs:9:33: 11:2 (#0)} { a: copy _1 };
+        return;
+    }
+}
+
+fn bar::{closure#0}(_1: Pin<&mut {async fn body of bar()}>, _2: &mut Context<'_>) -> Poll<i32> {
+    debug _task_context => _2;
+    debug a => ((*_7).0: i32);
+    let mut _0: std::task::Poll<i32>;
+    let _3: i32;
+    let mut _4: (i32, bool);
+    let mut _5: i32;
+    let mut _6: u32;
+    let mut _7: &mut {async fn body of bar()};
+    scope 1 {
+        debug a => _3;
+    }
+
+    bb0: {
+        _7 = copy (_1.0: &mut {async fn body of bar()});
+        _6 = discriminant((*_7));
+        switchInt(move _6) -> [0: bb1, 1: bb5, 2: bb4, otherwise: bb6];
+    }
+
+    bb1: {
+        _3 = copy ((*_7).0: i32);
+        _4 = AddWithOverflow(copy _3, const 1_i32);
+        assert(!move (_4.1: bool), "attempt to compute `{} + {}`, which would overflow", copy _3, const 1_i32) -> [success: bb2, unwind: bb3];
+    }
+
+    bb2: {
+        _5 = move (_4.0: i32);
+        _0 = Poll::<i32>::Ready(move _5);
+        discriminant((*_7)) = 1;
+        return;
+    }
+
+    bb3 (cleanup): {
+        discriminant((*_7)) = 2;
+        resume;
+    }
+
+    bb4: {
+        assert(const false, "`async fn` resumed after panicking") -> [success: bb4, unwind continue];
+    }
+
+    bb5: {
+        assert(const false, "`async fn` resumed after completion") -> [success: bb5, unwind continue];
+    }
+
+    bb6: {
+        unreachable;
+    }
+}
+
+fn example(_1: i32) -> {async fn body of example()} {
+    // 对应 example.rs:14：调用 async fn 时先创建并返回 Future 状态机。
+    debug x => _1;
+    let mut _0: {async fn body of example()};
+
+    bb0: {
+        // 保存 example 的参数 x；函数体此时还没有开始执行。
+        _0 = {coroutine@example.rs:14:37: 18:2 (#0)} { x: copy _1 };
+        return;
+    }
+}
+
+// 对应 example.rs:14-18：这是编译器生成的 Future 状态机 poll 逻辑。
+fn example::{closure#0}(_1: Pin<&mut {async fn body of example()}>, _2: &mut Context<'_>) -> Poll<i32> {
+    debug _task_context => _2;
+    debug x => ((*_25).0: i32);
+    let mut _0: std::task::Poll<i32>;
+    let mut _3: {async fn body of foo()};
+    let mut _4: {async fn body of foo()};
+    let mut _5: std::task::Poll<i32>;
+    let mut _6: std::pin::Pin<&mut {async fn body of foo()}>;
+    let mut _7: &mut {async fn body of foo()};
+    let mut _8: &mut std::task::Context<'_>;
+    let mut _9: isize;
+    let mut _11: &mut std::task::Context<'_>;
+    let mut _12: {async fn body of bar()};
+    let mut _13: {async fn body of bar()};
+    let mut _14: std::task::Poll<i32>;
+    let mut _15: std::pin::Pin<&mut {async fn body of bar()}>;
+    let mut _16: &mut {async fn body of bar()};
+    let mut _17: &mut std::task::Context<'_>;
+    let mut _18: isize;
+    let mut _20: &mut std::task::Context<'_>;
+    let mut _21: i32;
+    let mut _22: (i32, bool);
+    let mut _23: i32;
+    let mut _24: u32;
+    let mut _25: &mut {async fn body of example()};
+    scope 1 {
+        debug x => (((*_25) as variant#4).0: i32);
+        scope 2 {
+            debug a => _10;
+            scope 5 {
+                debug b => _19;
+            }
+            scope 6 {
+                debug __awaitee => (((*_25) as variant#4).1: {async fn body of bar()});
+                let _19: i32;
+                scope 7 {
+                    debug result => _19;
+                }
+            }
+        }
+        scope 3 {
+            debug __awaitee => (((*_25) as variant#3).1: {async fn body of foo()});
+            let _10: i32;
+            scope 4 {
+                debug result => _10;
+            }
+        }
+    }
+
+    bb0: {
+        // 根据 Future 当前状态决定首次执行，还是从某个 await 点恢复。
+        _25 = copy (_1.0: &mut {async fn body of example()});
+        _24 = discriminant((*_25));
+        switchInt(move _24) -> [0: bb1, 1: bb26, 2: bb25, 3: bb23, 4: bb24, otherwise: bb7];
+    }
+
+    bb1: {
+        // 对应 example.rs:15：开始执行第一个 foo().await。
+        (((*_25) as variant#4).0: i32) = copy ((*_25).0: i32);
+        _4 = foo() -> [return: bb2, unwind: bb22];
+    }
+
+    bb2: {
+        // 对应 .await 的 IntoFuture 转换，得到真正要 poll 的 Future。
+        _3 = <{async fn body of foo()} as IntoFuture>::into_future(move _4) -> [return: bb3, unwind: bb22];
+    }
+
+    bb3: {
+        // 将 foo Future 保存到状态机的 variant#3，Pending 后可以继续使用。
+        (((*_25) as variant#3).1: {async fn body of foo()}) = move _3;
+        goto -> bb4;
+    }
+
+    bb4: {
+        // 对应 await 的 Pin 要求：固定 foo Future 的地址后才能 poll。
+        _7 = &mut (((*_25) as variant#3).1: {async fn body of foo()});
+        _6 = Pin::<&mut {async fn body of foo()}>::new_unchecked(copy _7) -> [return: bb5, unwind: bb21];
+    }
+
+    bb5: {
+        // 调用 foo Future 的 poll，检查它是否已经完成。
+        _8 = copy _2;
+        _5 = <{async fn body of foo()} as Future>::poll(move _6, copy _8) -> [return: bb6, unwind: bb21];
+    }
+
+    bb6: {
+        // 分支对应 poll 返回 Pending 或 Ready(a)。
+        _9 = discriminant(_5);
+        switchInt(move _9) -> [0: bb9, 1: bb8, otherwise: bb7];
+    }
+
+    bb7: {
+        unreachable;
+    }
+
+    bb8: {
+        // foo 尚未完成：对应 example.rs:15 的暂停点，记录状态 3 后返回 Pending。
+        _0 = Poll::<i32>::Pending;
+        discriminant((*_25)) = 3;
+        return;
+    }
+
+    bb9: {
+        // foo 完成：取出 Ready(a)，对应源代码中的局部变量 a。
+        _10 = copy ((_5 as Ready).0: i32);
+        drop((((*_25) as variant#3).1: {async fn body of foo()})) -> [return: bb10, unwind: bb22];
+    }
+
+    bb10: {
+        // 对应 example.rs:16：使用 a 创建第二个 bar(a).await。
+        _13 = bar(copy _10) -> [return: bb11, unwind: bb22];
+    }
+
+    bb11: {
+        // 对第二个 await 执行 IntoFuture 转换。
+        _12 = <{async fn body of bar()} as IntoFuture>::into_future(move _13) -> [return: bb12, unwind: bb22];
+    }
+
+    bb12: {
+        // 将 bar Future 保存到状态机的 variant#4。
+        (((*_25) as variant#4).1: {async fn body of bar()}) = move _12;
+        goto -> bb13;
+    }
+
+    bb13: {
+        // 固定 bar Future 的地址，为调用 poll 做准备。
+        _16 = &mut (((*_25) as variant#4).1: {async fn body of bar()});
+        _15 = Pin::<&mut {async fn body of bar()}>::new_unchecked(copy _16) -> [return: bb14, unwind: bb20];
+    }
+
+    bb14: {
+        // 调用 bar Future 的 poll。
+        _17 = copy _2;
+        _14 = <{async fn body of bar()} as Future>::poll(move _15, copy _17) -> [return: bb15, unwind: bb20];
+    }
+
+    bb15: {
+        // 分支对应 poll 返回 Pending 或 Ready(b)。
+        _18 = discriminant(_14);
+        switchInt(move _18) -> [0: bb17, 1: bb16, otherwise: bb7];
+    }
+
+    bb16: {
+        // bar 尚未完成：对应 example.rs:16 的暂停点，记录状态 4 后返回 Pending。
+        _0 = Poll::<i32>::Pending;
+        discriminant((*_25)) = 4;
+        return;
+    }
+
+    bb17: {
+        // bar 完成：取出 Ready(b)，对应源代码中的局部变量 b。
+        _19 = copy ((_14 as Ready).0: i32);
+        drop((((*_25) as variant#4).1: {async fn body of bar()})) -> [return: bb18, unwind: bb22];
+    }
+
+    bb18: {
+        // 对应 example.rs:17：计算 b + x，并执行整数溢出检查。
+        _21 = copy (((*_25) as variant#4).0: i32);
+        _22 = AddWithOverflow(copy _19, copy _21);
+        assert(!move (_22.1: bool), "attempt to compute `{} + {}`, which would overflow", copy _19, move _21) -> [success: bb19, unwind: bb22];
+    }
+
+    bb19: {
+        // 计算完成：返回 Poll::Ready(b + x)，状态 1 表示 Future 已完成。
+        _23 = move (_22.0: i32);
+        _0 = Poll::<i32>::Ready(move _23);
+        discriminant((*_25)) = 1;
+        return;
+    }
+
+    // bar Future 在发生 panic 或取消时的清理路径。
+    bb20 (cleanup): {
+        drop((((*_25) as variant#4).1: {async fn body of bar()})) -> [return: bb22, unwind terminate(cleanup)];
+    }
+
+    // foo Future 在发生 panic 或取消时的清理路径。
+    bb21 (cleanup): {
+        drop((((*_25) as variant#3).1: {async fn body of foo()})) -> [return: bb22, unwind terminate(cleanup)];
+    }
+
+    // 统一清理入口：标记 Future 已进入 panic/取消状态并继续展开清理。
+    bb22 (cleanup): {
+        discriminant((*_25)) = 2;
+        resume;
+    }
+
+    bb23: {
+        // 状态 3 的恢复入口：继续 poll 第一个 foo Future。
+        _11 = move _2;
+        _2 = move _11;
+        goto -> bb4;
+    }
+
+    bb24: {
+        // 状态 4 的恢复入口：继续 poll 第二个 bar Future。
+        _20 = move _2;
+        _2 = move _20;
+        goto -> bb13;
+    }
+
+    // Future 在 panic 后被再次恢复，属于非法状态。
+    bb25: {
+        assert(const false, "`async fn` resumed after panicking") -> [success: bb25, unwind continue];
+    }
+
+    // Future 已经完成后又被 poll，属于非法状态。
+    bb26: {
+        assert(const false, "`async fn` resumed after completion") -> [success: bb26, unwind continue];
+    }
+}

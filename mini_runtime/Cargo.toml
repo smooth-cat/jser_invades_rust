@@ -1,0 +1,7 @@
+[package]
+name = "mini_runtime"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+mini_runtime_macros = { path = "../mini_runtime_macros" }
