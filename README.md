@@ -7,10 +7,26 @@
 
 ## Main README 为 Rust 环境安装教程
 
-1. 安装 Rust 编译器进入 https://rustup.rs/ 根据官网提示安装即可
-2. 安装 vscode 插件，在扩展商店中分别搜索以下插件并安装 (PS: 目前想要在 VSC 上爽 Rust 用至少要这三个插件)
-   1. rust-analyzer 负责代码诊断
-   2. Rust Syntax 负责代码高亮
-   3. CodeLLDB 负责 Debug
+### 安装 Rust 编译器进入 https://rustup.rs/
+
+**Mac OS 安装** 直接执行官方给出的命令行即可
+
+**WIndows 安装**
+
+1. 安装 vs_BuildTools.exe https://visualstudio.microsoft.com/zh-hans/downloads ctrl+f 搜 “生成工具”
+   1. 工作负荷选择：使用 C++ 的桌面开发
+   2. 安装位置可自选
+2. 安装 rustup-init.exe https://rustup.rs/  是官方给出的
+
+#### 验证安装
+
+```shel
+cargo -V
+```
+
+### 安装 vscode 插件，在扩展商店中分别搜索以下插件并安装
+
+1. rust-analyzer 负责代码诊断
+3. CodeLLDB 负责 Debug
 
 至此环境安装完毕，可以切换到其他分支开始学习 rust 使用
