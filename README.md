@@ -8,12 +8,29 @@
 
 ## 项目结构
 
+忽略 lib.rs 和 mod.rs
 ```
 jser_invades_rust
 ├── Cargo.toml                 # 包名 demo
 ├── src                       
 │   ├── main.rs                # 程序入口，use demo::algorithm
-│   ├── lib.rs                 # 包入口，导出 pub mod algorithm / util
+│   ├── algorithm
+│   └── util
+│       └── calc.rs            # 导出 pub(crate) fn add(a, b)
+└── README.md
+```
+## 模块图
+
+<img src="./rust模块.png"/>
+
+补上  lib.rs 和 mod.rs
+
+```
+jser_invades_rust
+├── Cargo.toml                 # 包名 demo
+├── src                       
+│   ├── main.rs                # 程序入口，use demo::algorithm
+│   ├── lib.rs                 # 包入口，导出 pub mod util / algorithm
 │   ├── algorithm
 │   │   └── mod.rs             # 导出 pub fn fib(n); 导入 use crate::util::calc;
 │   └── util
@@ -23,16 +40,14 @@ jser_invades_rust
 └── README.md
 ```
 
-## 模块图
 
-<img src="./rust模块.png"/>
 
 ## 约定/特性
 
 1. `lib.rs` 为包入口，Rust 发布 package 时的入口
 2. `main.rs` 为程序入口，运行 `cargo run` 时程序从 `fn main` 开始运行
-3. **Rust 子模块可以访问 父、祖父 模块中声明的所有内容，无论内容是否被 pub 修饰**
-4. `mod.rs` 代表所处文件夹是一个模块，它可以通过  `pub mod xxx`  来导出文件夹下的 `xxx.rs` 文件
+3. **最关键特性：一个模块仅可访问祖先模块内容**
+4. `lib.rs` 和 `mod.rs` 可以通过  `mod xxx`  来声明文件夹下的 `xxx.rs` 或 `xxx/mod.rs` 文件
 
 ## 关键字
 
@@ -46,10 +61,17 @@ jser_invades_rust
    `use super::xxx` 相对路径，相当于 './xxx'
    `use self::xxx` self 表示本模块，通常用在为模块中某个标识符取别名
 
+## 无脑的办法
+
+1. 每个 mod.rs / lib.rs 都为同级目录的所有子模块声明 `pub mod xxx`
+2. 使用 Rust AutoMod 插件 ⭕️
+3. 让 AI 来做 ✅
+
 ## 用第三方库
 
 ### 安装
 
+执行以下命令行
 ```shell
 cargo add xxx
 ```
