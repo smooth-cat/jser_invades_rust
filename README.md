@@ -21,7 +21,7 @@ jser_invades_rust
 ```
 ## 模块图
 
-<img src="./rust模块.png"/>
+<img width="1200" src="./rust模块.png"/>
 
 补上  lib.rs 和 mod.rs
 
@@ -29,8 +29,8 @@ jser_invades_rust
 jser_invades_rust
 ├── Cargo.toml                 # 包名 demo
 ├── src                       
-│   ├── main.rs                # 程序入口，use demo::algorithm
 │   ├── lib.rs                 # 包入口，导出 pub mod util / algorithm
+│   ├── main.rs                # 程序入口，use demo::algorithm
 │   ├── algorithm
 │   │   └── mod.rs             # 导出 pub fn fib(n); 导入 use crate::util::calc;
 │   └── util
