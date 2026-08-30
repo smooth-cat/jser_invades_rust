@@ -1,10 +1,10 @@
-/**
- * 裸写
- * 1. 英雄实现 hp、attack 基础方法
- * 2. 辅助实现 heal 治疗
- * 3. 刺客实现 can_kill、kill 方法
- */
-pub fn direct() {
+pub fn demo() {
+  /**
+   * 裸写
+   * 1. 英雄实现 hp、attack 基础方法
+   * 2. 辅助实现 heal 治疗
+   * 3. 刺客实现 can_kill、kill 方法
+   */
   // 共享行为(接口)：所有"英雄"都能做的事， trait 不能定义任何数据
   trait Hero {
     fn get_hp(&self) -> i32;
@@ -131,4 +131,9 @@ pub fn direct() {
     }
   }
   // TODO: 补充函数使用时 基于 trait 的泛型约束
+}
+
+#[test]
+fn run() {
+  demo();
 }

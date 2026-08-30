@@ -4,7 +4,7 @@
  * 2. 辅助实现 heal 治疗
  * 3. 刺客实现 can_kill、kill 方法
  */
-pub fn composite() {
+pub fn demo() {
   // 核心数据与通用逻辑
   struct Hero {
     hp: i32,
@@ -75,4 +75,9 @@ pub fn composite() {
   assassin.can_kill = true;
   assassin.kill(&mut support.hero);
   println!("{}", support.hero.hp); // 0
+}
+
+#[test]
+fn run() {
+  demo();
 }

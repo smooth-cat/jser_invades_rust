@@ -4,7 +4,7 @@
  * 2. 辅助实现 heal 治疗
  * 3. 刺客实现 can_kill、kill 方法
  */
-pub fn generic() {
+pub fn demo() {
   struct Hero<Role> {
     hp: i32,
     role: Role,
@@ -85,4 +85,9 @@ pub fn generic() {
       }
     }
   }
+}
+
+#[test]
+fn run() {
+  demo();
 }
