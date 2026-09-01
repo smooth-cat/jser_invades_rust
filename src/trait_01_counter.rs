@@ -20,6 +20,7 @@ pub fn demo() {
       self.count
     }
   }
+  
   let mut c = Counter { count: 0 };
   println!("{}", c.inc() == 1);
   println!("{}", c.inc() == 2);
