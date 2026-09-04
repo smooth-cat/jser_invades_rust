@@ -1,15 +1,18 @@
 pub fn demo() {
   /*----------------- 计数器 -----------------*/
-  /** struct 只能放数据 */
-  pub struct Counter {
+  // struct 只放数据
+  struct Counter {
     count: i32,
   }
-  /** trait 定义方法签名 */
-  pub trait SelfOperate {
+
+  // trait 只放方法
+  trait SelfOperate {
     fn inc(&mut self) -> i32;
     fn dec(&mut self) -> i32;
+    fn _greet() { println!("hello world") }
   }
 
+  // 为 Counter 实现 SelfOperate
   impl SelfOperate for Counter {
     fn inc(&mut self) -> i32 {
       self.count += 1;

@@ -1,11 +1,11 @@
 /*------------------------ 计数器 ------------------------*/
 class Counter {
   count = 0;
-  /** 添加 */
+  /** 自增 */
   inc() {
     return ++this.count;
   }
-  /** 减去 */
+  /** 自减 */
   sub() {
     return --this.count;
   }

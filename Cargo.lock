@@ -11,9 +11,9 @@ dependencies = [
 
 [[package]]
 name = "duck-trait"
-version = "0.10.2"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7ad41bbc53ab0c4777b87db4a8ec6c5b857a29cdcc66c31d5b8452d1b7df7c1"
+checksum = "523541d2dba3d130c508a1970fa51ccdc02307002026f76e8ec0584abe3beffe"
 dependencies = [
  "proc-macro2",
  "quote",

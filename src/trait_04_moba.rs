@@ -19,7 +19,7 @@ struct Assassin {
   can_kill: bool,
 }
 
-/*----------------- 定义 血量 get set -----------------*/
+/*----------------- 定义 血量模组 -----------------*/
 trait HasHp {
   fn hp(&self) -> i32;
   fn hp_set(&mut self, hp: i32);

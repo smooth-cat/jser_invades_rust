@@ -1,4 +1,5 @@
-use duck_trait::ducks;
+use duck_trait::{props};
+use crate::_fields::_Hp;
 /*
  * 有两个英雄：
  * 1. 辅助
@@ -9,20 +10,17 @@ use duck_trait::ducks;
  *   - 普通攻击
  *   - 刺杀
  */
-ducks! {
-  /*----------------- 辅助 -----------------*/
-  struct Support {
-    #[duck]
-    hp: i32,
-  }
+/*----------------- 辅助 -----------------*/
+#[props]
+struct Support {
+  hp: i32,
+}
 
-  /*----------------- 刺客 -----------------*/
-  struct Assassin {
-    #[duck]
-    hp: i32,
-    #[duck]
-    can_kill: bool,
-  }
+/*----------------- 刺客 -----------------*/
+#[props]
+struct Assassin {
+  hp: i32,
+  can_kill: bool,
 }
 /*----------------- 攻击模组 -----------------*/
 trait CanAttack {
@@ -32,14 +30,16 @@ trait CanAttack {
 }
 
 /*----------------- 治疗模组 -----------------*/
-trait CanHeal: _Hp<i32> {
+#[props(hp: i32)]
+trait CanHeal {
   fn heal(&mut self) {
     self.hp_set((self.hp() + 5).min(100));
   }
 }
 
 /*----------------- 刺杀模组 -----------------*/
-trait CanKill: _CanKill<bool> {
+#[props(can_kill: bool)]
+trait CanKill {
   fn kill<T: _Hp<i32>>(&self, target: &mut T) {
     if *self.can_kill() {
       target.hp_set(0);
