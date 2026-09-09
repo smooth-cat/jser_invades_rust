@@ -1,4 +1,6 @@
-use std::collections::{BTreeSet, HashMap, HashSet, LinkedList, VecDeque};
+use std::collections::{BTreeSet, HashSet, LinkedList, VecDeque};
+
+use hashbrown::HashMap;
 
 fn main() {
   /*----------------- 数组 -----------------*/
@@ -89,7 +91,16 @@ fn main() {
 
   /*----------------- Map -----------------*/
   // HashMap 的 key 需要实现 Hash，Eq、PartialEq Trait。 value 不需要
-  let hash_map = HashMap::from([("apple", 1), ("banana", 2), ("orange", 3)]);
+  let mut hash_map = HashMap::<char, i32>::new();
+  hash_map.insert('a', 7);
+  hash_map.insert('b', 8);
+  hash_map.insert('c', 9);
+  hash_map.insert('d', 10);
+  hash_map.insert('e', 11);
+
+  hash_map.get(&'a');
+  
+  hash_map.remove(&'a');
 
   /*----------------- Box -----------------*/
   // 1. Box 处理链表, 树 这种，不用 Box 会导致 rust 内存无限递归计算，把下一个 node 放 heap 上

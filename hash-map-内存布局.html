@@ -1,0 +1,1876 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rust HashMap&lt;K, V&gt; 内存结构图解</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --surface-strong: #21262d;
+  --border: #30363d;
+  --text: #c9d1d9;
+  --muted: #8b949e;
+  --faint: #6e7681;
+  --blue: #58a6ff;
+  --blue-soft: #0d1f3c;
+  --green: #7ee787;
+  --green-soft: #112b1c;
+  --orange: #f0883e;
+  --orange-soft: #2d1b0d;
+  --purple: #d2a8ff;
+  --purple-soft: #241535;
+  --red: #f85149;
+  --red-soft: #351719;
+  --yellow: #e3b341;
+  --yellow-soft: #2b2512;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  padding: 40px 20px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "SF Mono", "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+  line-height: 1.7;
+}
+
+button, input { font: inherit; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.container { width: min(1120px, 100%); margin: 0 auto; }
+h1 {
+  margin: 0 0 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--surface-strong);
+  color: var(--blue);
+  font-size: 1.8rem;
+  font-weight: 700;
+}
+.subtitle { margin: 0 0 36px; color: var(--muted); font-size: 0.9rem; }
+h2 {
+  margin: 52px 0 18px;
+  padding-left: 12px;
+  border-left: 3px solid var(--orange);
+  color: var(--orange);
+  font-size: 1.3rem;
+}
+h3 { margin: 30px 0 12px; color: #79c0ff; font-size: 1.04rem; }
+p { margin: 10px 0; }
+strong { color: #f0f6fc; }
+code {
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-strong);
+  color: #79c0ff;
+  font-family: inherit;
+  font-size: 0.9em;
+}
+hr { margin: 44px 0; border: 0; border-top: 1px solid var(--surface-strong); }
+.note { margin: 7px 0; color: var(--muted); font-size: 0.82rem; }
+.warning { color: #ffa198; }
+
+.quick-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 20px 0 32px;
+}
+.fact {
+  min-height: 88px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+}
+.fact-label { color: var(--muted); font-size: 0.72rem; }
+.fact-value { margin-top: 4px; color: var(--green); font-size: 1.08rem; font-weight: 700; }
+.fact-detail { margin-top: 2px; color: var(--faint); font-size: 0.72rem; }
+
+.code-block {
+  margin: 14px 0;
+  padding: 16px;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.81rem;
+  line-height: 1.8;
+  white-space: pre;
+}
+.code-block .kw { color: #ff7b72; }
+.code-block .ty { color: #79c0ff; }
+.code-block .fn { color: var(--purple); }
+.code-block .num { color: #79c0ff; }
+.code-block .str { color: #a5d6ff; }
+.code-block .cm { color: var(--muted); }
+
+.memory-scene {
+  margin: 20px 0;
+  padding: 22px;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.scene-title { margin: 0 0 14px; color: var(--green); font-size: 0.82rem; font-weight: 700; }
+.flex-row { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
+.flex-col { display: flex; min-width: 0; flex-direction: column; gap: 8px; }
+.grow { flex: 1 1 480px; }
+.zone-label {
+  margin-bottom: 9px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.zone-stack .zone-label { color: var(--green); }
+.zone-heap .zone-label { color: var(--purple); }
+
+.stack-frame {
+  display: inline-flex;
+  min-width: 360px;
+  flex-direction: column;
+  overflow: hidden;
+  border: 2px solid var(--green);
+  border-radius: 6px;
+}
+.frame-title {
+  padding: 5px 12px;
+  background: #1a3a2a;
+  color: var(--green);
+  font-size: 0.78rem;
+  text-align: center;
+}
+.stack-row { display: grid; grid-template-columns: 96px minmax(110px, 1fr) 110px 46px; border-bottom: 1px solid var(--border); }
+.stack-row:last-child { border-bottom: 0; }
+.stack-cell { padding: 8px 10px; border-right: 1px solid var(--border); font-size: 0.78rem; overflow-wrap: anywhere; text-align: center; }
+.stack-cell:last-child { border-right: 0; }
+.stack-cell.field { background: var(--bg); color: #79c0ff; font-weight: 700; }
+.stack-cell.value { color: #ffa657; }
+.stack-cell.type { color: var(--muted); }
+.stack-cell.size { color: var(--faint); }
+
+.pointer-line { margin: 6px 0 0; color: var(--blue); font-size: 0.78rem; }
+.pointer-line::before { content: "──▶ "; }
+
+.heap-block {
+  display: inline-flex;
+  max-width: 100%;
+  flex-direction: column;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border: 2px solid var(--purple);
+  border-radius: 6px;
+}
+.heap-title {
+  padding: 5px 12px;
+  background: #2a1a3a;
+  color: var(--purple);
+  font-size: 0.77rem;
+  text-align: center;
+}
+
+.hash-wrap { padding: 10px 10px 4px; min-width: max-content; }
+.seg-bracket { display: flex; gap: 3px; min-width: max-content; margin-bottom: 6px; }
+.seg-label { padding: 2px 8px; border: 1px dashed var(--border); border-radius: 4px; color: var(--muted); font-size: 0.62rem; white-space: nowrap; }
+.hash-strip { display: flex; gap: 3px; min-width: max-content; }
+.hc { display: flex; width: 32px; min-width: 32px; flex-direction: column; gap: 3px; }
+.hc-c, .hc-b {
+  min-height: 38px;
+  padding: 3px 2px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 0.58rem;
+  line-height: 1.35;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.hc-b { display: flex; min-height: 46px; align-items: center; justify-content: center; }
+.hc-l { color: var(--faint); font-size: 0.56rem; text-align: center; white-space: nowrap; }
+.hc-c.empty { color: #484f58; }
+.hc-c.full { border-color: var(--purple); background: var(--purple-soft); color: var(--purple); font-weight: 700; }
+.hc-c.deleted { border-color: var(--orange); background: var(--orange-soft); color: #ffa657; font-weight: 700; }
+.hc-c.mirror { opacity: 0.55; }
+.hc-c.pad { border-style: dashed; opacity: 0.5; }
+.hc-c.probe { outline: 2px solid var(--blue); outline-offset: 1px; }
+.hc-c.hot { box-shadow: 0 0 0 2px var(--green); }
+.hc-b.used { border-color: var(--purple); background: var(--purple-soft); color: var(--text); }
+.hc-b.free { color: #484f58; }
+.hc-b.uninit { border-style: dashed; color: #484f58; }
+.hc-b.cmp { box-shadow: 0 0 0 2px var(--yellow); }
+.hc-b.freed { border-color: var(--orange); color: #ffa657; }
+.hc-b.hot { box-shadow: 0 0 0 2px var(--green); }
+.strip-legend { display: flex; flex-wrap: wrap; gap: 14px; margin: 10px 0 0; color: var(--muted); font-size: 0.7rem; }
+.legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.swatch { width: 14px; height: 10px; border: 1px solid var(--border); border-radius: 2px; background: var(--bg); }
+.swatch.full { border-color: var(--purple); background: var(--purple-soft); }
+.swatch.deleted { border-color: var(--orange); background: var(--orange-soft); }
+.swatch.probe { outline: 2px solid var(--blue); outline-offset: -1px; }
+.swatch.cmp { box-shadow: 0 0 0 1.5px var(--yellow); }
+.swatch.hot { box-shadow: 0 0 0 1.5px var(--green); }
+
+.hash-split {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 12px 0 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  font-size: 0.74rem;
+}
+.hs-label { color: var(--muted); }
+.hs-value { color: #a5d6ff; font-weight: 700; }
+.hs-seg { padding: 2px 8px; border-radius: 4px; }
+.hs-seg.h2 { border: 1px solid var(--orange); background: var(--orange-soft); color: #ffa657; }
+.hs-seg.h1 { border: 1px solid var(--blue); background: var(--blue-soft); color: #79c0ff; }
+.hs-arrow { color: var(--faint); }
+
+.bit-ruler { display: flex; gap: 4px; min-width: max-content; }
+.bit-seg { padding: 10px 8px; border-radius: 5px; font-size: 0.66rem; line-height: 1.5; text-align: center; }
+.seg-h2 { flex: 7 1 110px; border: 1px solid var(--orange); background: var(--orange-soft); color: #ffa657; font-weight: 700; }
+.seg-mid { flex: 55 1 140px; border: 1px dashed var(--border); background: var(--bg); color: var(--faint); }
+.seg-pos { flex: 2 1 84px; border: 1px solid var(--green); background: var(--green-soft); color: var(--green); font-weight: 700; }
+.bit-scale { display: flex; gap: 4px; margin-top: 4px; min-width: max-content; color: var(--faint); font-size: 0.6rem; text-align: center; }
+.bit-scale span { flex: 1 1 0; }
+
+.steps { margin: 14px 0; }
+.step { display: flex; gap: 12px; align-items: flex-start; margin: 10px 0; }
+.step-num {
+  display: flex;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+  border-radius: 50%;
+  background: var(--surface-strong);
+  color: var(--blue);
+  font-size: 0.7rem;
+}
+.step-text { font-size: 0.84rem; }
+
+.operation-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 18px 0; }
+.operation { padding: 16px; border-left: 3px solid var(--blue); background: var(--surface); }
+.operation.front { border-left-color: var(--green); }
+.operation.back { border-left-color: var(--orange); }
+.operation-title { color: #f0f6fc; font-size: 0.84rem; font-weight: 700; }
+.operation-formula { margin: 7px 0 4px; color: #79c0ff; font-size: 0.76rem; }
+.operation p { margin: 3px 0; color: var(--muted); font-size: 0.76rem; }
+
+.lab {
+  margin: 22px 0;
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.lab-header { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: flex-end; justify-content: space-between; margin-bottom: 16px; }
+.lab-title { margin: 0; color: var(--green); font-size: 0.94rem; }
+.lab-state { color: var(--muted); font-size: 0.76rem; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field label { color: var(--muted); font-size: 0.68rem; }
+.field input {
+  width: 96px;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text);
+}
+.btn {
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface-strong);
+  color: var(--text);
+  cursor: pointer;
+}
+.btn:hover { border-color: var(--blue); color: #f0f6fc; }
+.btn.primary { border-color: #238636; background: #238636; color: #fff; }
+.btn.warn { border-color: #9e3a37; background: #3d1a18; color: #ffa198; }
+.btn.ghost { background: transparent; color: var(--muted); }
+.lab-message { min-height: 25px; margin: 12px 0 0; color: #79c0ff; font-size: 0.78rem; }
+.lab-views { display: grid; gap: 18px; margin-top: 14px; }
+.lab-log {
+  max-height: 320px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  font-size: 0.74rem;
+}
+.log-op { margin: 10px 0 4px; color: var(--green); font-weight: 700; }
+.log-op:first-child { margin-top: 0; }
+.log-step { margin: 3px 0 3px 14px; color: var(--muted); }
+.log-step.hit { color: var(--green); }
+.log-step.warn { color: #ffa657; }
+.log-step.info { color: #79c0ff; }
+
+.compare-table { width: 100%; margin: 16px 0; border-collapse: collapse; font-size: 0.79rem; }
+.compare-table th { padding: 9px 11px; border: 1px solid var(--border); background: var(--surface-strong); color: var(--blue); text-align: left; }
+.compare-table td { padding: 9px 11px; border: 1px solid var(--border); vertical-align: top; }
+.compare-table tr:nth-child(even) td { background: var(--surface); }
+.yes { color: var(--green); }
+.no { color: var(--muted); }
+.compare-wrap { overflow-x: auto; }
+
+.footer { margin-top: 42px; color: var(--faint); font-size: 0.72rem; text-align: center; }
+
+@media (max-width: 760px) {
+  body { padding: 26px 14px; }
+  h1 { font-size: 1.42rem; }
+  h2 { margin-top: 42px; font-size: 1.13rem; }
+  .quick-facts, .operation-grid { grid-template-columns: 1fr; }
+  .memory-scene, .lab { padding: 16px; }
+  .stack-frame { min-width: 0; width: 100%; }
+  .stack-row { grid-template-columns: 76px minmax(88px, 1fr) 78px 40px; }
+  .stack-cell { padding: 7px 5px; font-size: 0.68rem; }
+  .controls { align-items: stretch; }
+  .field { width: 100%; }
+  .field input { width: 100%; }
+  .btn { flex: 1 1 132px; }
+  .compare-table { min-width: 640px; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .hc-c, .hc-b { transition: background-color 160ms ease, box-shadow 160ms ease; }
+}
+</style>
+</head>
+<body>
+<main class="container">
+
+<header>
+  <h1>Rust HashMap&lt;K, V&gt; 内存结构图解</h1>
+  <p class="subtitle">栈 · ctrl bytes · 逆序桶数组 —— insert / get / remove 与扩容的底层实现 | 2026-09-07</p>
+</header>
+
+<section class="quick-facts" aria-label="HashMap 核心事实">
+  <div class="fact">
+    <div class="fact-label">64 位平台上的概念大小</div>
+    <div class="fact-value">48 bytes</div>
+    <div class="fact-detail">hash_builder 16 B + RawTableInner 32 B</div>
+  </div>
+  <div class="fact">
+    <div class="fact-label">最大负载因子</div>
+    <div class="fact-value">7/8 = 87.5%</div>
+    <div class="fact-detail">growth_left 归零触发 rehash</div>
+  </div>
+  <div class="fact">
+    <div class="fact-label">查找方式</div>
+    <div class="fact-value">16 B 一组 SIMD 扫描</div>
+    <div class="fact-detail">先比对 h2 字节，命中才比较 key</div>
+  </div>
+</section>
+
+<h2>一、HashMap 的本质</h2>
+
+<p><code>std::collections::HashMap</code> 只是一层薄包装：真正的实现是 <strong>hashbrown</strong>（Google SwissTable 的 Rust 移植）。它的全部状态是栈上 48 字节的控制结构，元素本身存放在<strong>一段连续的堆分配</strong>里。</p>
+
+<div class="code-block"><span class="cm">// std 源码：library/std/src/collections/hash/map.rs</span>
+<span class="kw">pub struct</span> <span class="ty">HashMap</span>&lt;<span class="ty">K</span>, <span class="ty">V</span>, <span class="ty">S</span> = <span class="ty">RandomState</span>&gt; {
+    base: hashbrown::<span class="ty">HashMap</span>&lt;<span class="ty">K</span>, <span class="ty">V</span>, <span class="ty">S</span>&gt;,
+}
+
+<span class="cm">// hashbrown 0.17 src/map.rs：概念上只有两个字段</span>
+<span class="kw">pub struct</span> <span class="ty">HashMap</span>&lt;<span class="ty">K</span>, <span class="ty">V</span>, <span class="ty">S</span>&gt; {
+    hash_builder: <span class="ty">S</span>,          <span class="cm">// RandomState：SipHash 1-3 的两个 u64 种子，16 B</span>
+    table: <span class="ty">RawTable</span>&lt;(<span class="ty">K</span>, <span class="ty">V</span>)&gt;, <span class="cm">// 哈希表本体</span>
+}
+
+<span class="cm">// hashbrown 0.17 src/raw.rs：核心控制结构，4 个 usize</span>
+<span class="kw">struct</span> <span class="ty">RawTableInner</span> {
+    bucket_mask: <span class="ty">usize</span>,   <span class="cm">// 桶数 - 1（桶数恒为 2 的幂，用 &amp; 代替 %）</span>
+    ctrl: <span class="ty">NonNull</span>&lt;<span class="ty">u8</span>&gt;,   <span class="cm">// 指向堆上 ctrl bytes 的首字节 C0</span>
+    growth_left: <span class="ty">usize</span>,   <span class="cm">// 还能插入多少个元素就触发扩容</span>
+    items: <span class="ty">usize</span>,         <span class="cm">// 实际元素数，即 len()</span>
+}
+<span class="cm">// 64 位平台：HashMap 概念大小 = 16 + 32 = 48 bytes</span></div>
+
+<p class="note"><code>HashMap::new()</code> <strong>不做任何堆分配</strong>：<code>ctrl</code> 指向一段静态的 EMPTY 表（16 个 <code>0xFF</code>），第一次 <code>insert</code> 才申请堆内存。字段顺序与 ABI 不是稳定承诺，下图按语义字段讲解。</p>
+
+<h2>二、内存总览：一段连续分配</h2>
+
+<p>每张表在堆上只有<strong>一次</strong> <code>alloc</code>，自低位到高位依次是：桶数据（逆序存放）和 ctrl bytes 区。每个桶的“户口”由同下标的 ctrl byte 管理。</p>
+
+<div class="code-block"><span class="cm">// hashbrown 0.17 src/raw.rs 的内存布局注释（概念化）</span>
+<span class="cm">//</span>
+<span class="cm">// [Padding] [T_n … T_1 T_0] [C_0 C_1 … C_{n-1}] [C_0 … C_15 的复制]</span>
+<span class="cm">//            \____ 桶数据，逆序 ____/  \___ ctrl 区 ___/   尾部镜像</span>
+<span class="cm">//                                    ^</span>
+<span class="cm">//                                    ctrl 字段指向这里（C0）</span>
+<span class="cm">//</span>
+<span class="cm">// 桶 T_i 的地址 = data_end - (i + 1) × size_of::&lt;(K, V)&gt;()</span>
+<span class="cm">// data_end == ctrl 指针：桶 0 紧贴在 ctrl 区之前，越靠后的桶地址越低</span>
+<span class="cm">//</span>
+<span class="cm">// ctrl 区长度 = 桶数 + 16：</span>
+<span class="cm">//   · C_0..C_{n-1}   真实 ctrl byte，每个桶一个</span>
+<span class="cm">//   · 小表(&lt;16 桶) 中间夹一段恒为 EMPTY 的填充字节</span>
+<span class="cm">//   · 末尾 16 字节复制开头 16 字节：组加载越过表尾时读到的是“回绕”数据</span></div>
+
+<h3>ctrl byte 的三种状态</h3>
+
+<div class="code-block"><span class="cm">// hashbrown 0.17 src/control/tag.rs</span>
+<span class="ty">Tag::EMPTY</span>   = <span class="num">0b1111_1111</span>  <span class="cm">// 0xFF 空槽：探测在这里终止</span>
+<span class="ty">Tag::DELETED</span> = <span class="num">0b1000_0000</span>  <span class="cm">// 0x80 墓碑：探测继续前进（remove 产生）</span>
+<span class="cm">// 其余 0b0hhh_hhhh（0x00..=0x7F）= FULL：64 位 hash 的最高 7 位，记作 h2</span></div>
+
+<p class="note">一次探测用 SIMD 一口气加载 16 个 ctrl byte，用一条指令筛出“h2 相同”的候选，再逐个比较 key。h2 只有 7 位，可能误报，但把昂贵的 key 比较从 16 次压缩到极少数几次。</p>
+
+<h3>从 <code>HashMap::new()</code> 到第一次 <code>insert</code></h3>
+
+<div class="memory-scene">
+  <div class="scene-title">状态 A：<code>HashMap::new()</code> —— 零堆分配</div>
+  <div class="flex-row">
+    <div class="flex-col">
+      <div class="zone-stack">
+        <div class="zone-label">栈 (Stack) —— 当前函数帧</div>
+        <div class="stack-frame">
+          <div class="frame-title">RawTableInner —— 概念上 32 字节</div>
+          <div class="stack-row">
+            <div class="stack-cell field">bucket_mask</div><div class="stack-cell value">0</div><div class="stack-cell type">usize</div><div class="stack-cell size">8 B</div>
+          </div>
+          <div class="stack-row">
+            <div class="stack-cell field">ctrl</div><div class="stack-cell value">→ 静态 EMPTY 表</div><div class="stack-cell type">NonNull&lt;u8&gt;</div><div class="stack-cell size">8 B</div>
+          </div>
+          <div class="stack-row">
+            <div class="stack-cell field">growth_left</div><div class="stack-cell value">0</div><div class="stack-cell type">usize</div><div class="stack-cell size">8 B</div>
+          </div>
+          <div class="stack-row">
+            <div class="stack-cell field">items</div><div class="stack-cell value">0</div><div class="stack-cell type">usize</div><div class="stack-cell size">8 B</div>
+          </div>
+        </div>
+        <div class="pointer-line">ctrl 指向 16 个 0xFF 的静态字节：任何探测第一步就撞上 EMPTY 而终止</div>
+      </div>
+    </div>
+    <div class="flex-col grow">
+      <div class="zone-heap">
+        <div class="zone-label">堆 (Heap)</div>
+        <div class="heap-block">
+          <div class="heap-title">（未分配）</div>
+          <div class="hash-wrap" style="padding: 18px"><span class="seg-label">没有堆内存 —— 首次 insert 才按 4 桶起步分配</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="memory-scene">
+  <div class="scene-title">状态 B：<code>map.insert("ip", 1)</code> 之后 —— 首次分配 4 个桶</div>
+  <div class="hash-split" role="img" aria-label="hash 拆分：hash(ip) 的高 7 位是 0x04，起始探测位是 0">
+    <span class="hs-label">hash("ip") =</span>
+    <span class="hs-value">0x08b74207b55c5cbc</span>
+    <span class="hs-arrow">→</span>
+    <span class="hs-seg h2">h2 = hash &gt;&gt; 57 = 0x04</span>
+    <span class="hs-arrow">→</span>
+    <span class="hs-seg h1">起始探测位 = h1 &amp; bucket_mask = 0</span>
+  </div>
+  <div class="flex-row" style="margin-top: 12px">
+    <div class="flex-col">
+      <div class="zone-stack">
+        <div class="zone-label">栈 (Stack)</div>
+        <div class="stack-frame">
+          <div class="frame-title">RawTableInner</div>
+          <div class="stack-row">
+            <div class="stack-cell field">bucket_mask</div><div class="stack-cell value">3</div><div class="stack-cell type">4 桶 - 1</div><div class="stack-cell size">8 B</div>
+          </div>
+          <div class="stack-row">
+            <div class="stack-cell field">ctrl</div><div class="stack-cell value">0x7f3a_0100</div><div class="stack-cell type">NonNull&lt;u8&gt;</div><div class="stack-cell size">8 B</div>
+          </div>
+          <div class="stack-row">
+            <div class="stack-cell field">growth_left</div><div class="stack-cell value">2</div><div class="stack-cell type">usize</div><div class="stack-cell size">8 B</div>
+          </div>
+          <div class="stack-row">
+            <div class="stack-cell field">items</div><div class="stack-cell value">1</div><div class="stack-cell type">usize</div><div class="stack-cell size">8 B</div>
+          </div>
+        </div>
+        <div class="pointer-line">ctrl 指向 C0，即整块分配中桶数据之后的第一个字节</div>
+      </div>
+    </div>
+    <div class="flex-col grow">
+      <div class="zone-heap">
+        <div class="zone-label">堆 (Heap) —— 一次连续分配：96 B 桶数据 + 20 B ctrl 区 = 116 B</div>
+        <div class="heap-block">
+          <div class="heap-title">0x7f3a_00a0 起 · buckets = 4 · growth_left = 2 · items = 1</div>
+          <div class="hash-wrap">
+            <div class="seg-bracket">
+              <span class="seg-label">桶数据（逆序 T₃…T₀，每桶 24 B 的 (K, V)）</span>
+              <span class="seg-label">真实 ctrl C0…C3</span>
+              <span class="seg-label">恒 EMPTY 的填充</span>
+              <span class="seg-label">尾部镜像（复制 C0…C3）</span>
+            </div>
+            <div class="hash-strip" role="img" aria-label="桶数据 T3 到 T0，其中 T0 存有 ip:1；ctrl 字节 C0 为 0x04，其余为 0xFF，镜像区复制 C0 到 C3">
+              <div class="hc"><div class="hc-b uninit">未初始化</div><div class="hc-l">T₃ +0</div></div>
+              <div class="hc"><div class="hc-b uninit">未初始化</div><div class="hc-l">T₂ +24</div></div>
+              <div class="hc"><div class="hc-b uninit">未初始化</div><div class="hc-l">T₁ +48</div></div>
+              <div class="hc"><div class="hc-b used">"ip":1</div><div class="hc-l">T₀ +72</div></div>
+              <div class="hc"><div class="hc-c full">0x04</div><div class="hc-l">C₀ +96</div></div>
+              <div class="hc"><div class="hc-c empty">0xff</div><div class="hc-l">C₁</div></div>
+              <div class="hc"><div class="hc-c empty">0xff</div><div class="hc-l">C₂</div></div>
+              <div class="hc"><div class="hc-c empty">0xff</div><div class="hc-l">C₃</div></div>
+              <div class="hc"><div class="hc-c empty pad">0xff</div><div class="hc-l">C₄</div></div>
+              <div class="hc"><div class="hc-c empty pad">0xff</div><div class="hc-l">C₅</div></div>
+              <div class="hc"><div class="hc-c empty pad">0xff</div><div class="hc-l">C₆</div></div>
+              <div class="hc"><div class="hc-c empty pad">0xff</div><div class="hc-l">C₇</div></div>
+              <div class="hc"><div class="hc-c empty pad">0xff</div><div class="hc-l">C₈</div></div>
+              <div class="hc"><div class="hc-c empty pad">0xff</div><div class="hc-l">C₉</div></div>
+              <div class="hc"><div class="hc-c empty pad">0xff</div><div class="hc-l">C₁₀</div></div>
+              <div class="hc"><div class="hc-c empty pad">0xff</div><div class="hc-l">C₁₁</div></div>
+              <div class="hc"><div class="hc-c empty pad">0xff</div><div class="hc-l">C₁₂</div></div>
+              <div class="hc"><div class="hc-c empty pad">0xff</div><div class="hc-l">C₁₃</div></div>
+              <div class="hc"><div class="hc-c empty pad">0xff</div><div class="hc-l">C₁₄</div></div>
+              <div class="hc"><div class="hc-c empty pad">0xff</div><div class="hc-l">C₁₅</div></div>
+              <div class="hc"><div class="hc-c full mirror">0x04</div><div class="hc-l">m₀ +112</div></div>
+              <div class="hc"><div class="hc-c empty mirror">0xff</div><div class="hc-l">m₁</div></div>
+              <div class="hc"><div class="hc-c empty mirror">0xff</div><div class="hc-l">m₂</div></div>
+              <div class="hc"><div class="hc-c empty mirror">0xff</div><div class="hc-l">m₃</div></div>
+            </div>
+          </div>
+          <div class="strip-legend">
+            <span class="legend-item"><span class="swatch full"></span>FULL（h2）</span>
+            <span class="legend-item"><span class="swatch"></span>EMPTY 0xFF</span>
+            <span class="legend-item"><span class="swatch deleted"></span>DELETED 0x80</span>
+            <span class="legend-item">mᵢ = Cᵢ 的镜像副本</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="steps">
+    <div class="step"><div class="step-num">1</div><div class="step-text"><code>reserve(1)</code>：表还是单例 → <code>capacity_to_buckets(1) = 4</code> 桶（三个常量如何定出 4 → 见第七节），分配 116 B（以 <code>HashMap&lt;&amp;str, i32&gt;</code> 为例，桶步长 24 B）。</div></div>
+    <div class="step"><div class="step-num">2</div><div class="step-text"><code>h1 &amp; 3 = 0</code> → 加载 group@0：16 个字节里第一个 EMPTY 在 bit 0 → 插入槽位 0。</div></div>
+    <div class="step"><div class="step-num">3</div><div class="step-text">写 <code>ctrl[0] = 0x04</code>（镜像 <code>m0</code> 同步更新），<code>growth_left = capacity - items = 3 - 1 = 2</code>。</div></div>
+    <div class="step"><div class="step-num">4</div><div class="step-text">把 <code>("ip", 1)</code> 写进桶数据区末端的 T₀ —— 逆序布局让“追加桶 0”发生在离 ctrl 最近的位置。</div></div>
+  </div>
+  <p class="note">地址与哈希值为示意：标准库用 SipHash 1-3 + 每次进程随机的种子，本页所有示例改用固定 FNV-1a 64 以便复现（与文末操作台完全一致）。</p>
+</div>
+
+<h2>三、h1 / h2 / pos 是怎么生成的：每个参数讲清楚</h2>
+
+<p>查找和插入共用同一条流水线：<strong>key → hash → (h2, pos) → ctrl byte 与桶的物理地址</strong>。下面分四步走，每一步用到的每个数字（57、0x7f、bucket_mask、16……）都交代来历。</p>
+
+<h3>步骤 ①：key → hash（64 位）</h3>
+
+<p>hash 是整条流水线的唯一输入，它由<strong>哈希函数</strong>生成——把任意长度的 key 压缩成固定 64 位，且分布均匀：</p>
+
+<div class="code-block"><span class="cm">// 标准库：make_hash —— key 的字节流喂给 SipHash 1-3，压缩出一个 u64</span>
+<span class="kw">let</span> hash = {
+    <span class="kw">let mut</span> hasher = hash_builder.<span class="fn">build_hasher</span>();  <span class="cm">// hash_builder = RandomState（见下）</span>
+    k.<span class="fn">hash</span>(&<span class="kw">mut</span> hasher);                           <span class="cm">// 把 key 的字节逐个喂进去</span>
+    hasher.<span class="fn">finish</span>()                                 <span class="cm">// → 64 位，例如 0x08b74207b55c5cbc</span>
+};
+<span class="cm">// RandomState 内部是两个 u64 种子 k0、k1：</span>
+<span class="cm">//   · 进程启动时随机生成一次（线程局部，每个 HashMap 实例再叠加一个计数）</span>
+<span class="cm">//   · 所以同一份代码每次运行、每个 map 实例，hash 都不同 —— 攻击者无法预测</span>
+<span class="cm">//     哪些 key 会撞在同一个桶上，这是抗 HashDoS 攻击的防线</span>
+<span class="cm">// 本页示例换成固定种子的 FNV-1a 64 以便复现：</span>
+<span class="cm">//   h 初值 = 0xcbf29ce484222325，对 key 的每个字节：h ^= 字节; h *= 0x100000001b3</span></div>
+
+<p class="note">对 hash 的唯一要求是<strong>位模式足够随机</strong>：后面 h2 靠它筛候选、pos 靠它均匀落桶。换成 ahash / fxhash 等更快的函数也行，但会失去 RandomState 的防碰撞保证。</p>
+
+<h3>步骤 ②：hash → h2（取最高 7 位做“指纹”）</h3>
+
+<div class="code-block">h2 = (hash &gt;&gt; 57) &amp; 0x7f
+<span class="cm">//            │     └─ 0x7f = 0b0111_1111：7 个指纹位的掩码（64 位下右移已只剩 7 位，</span>
+<span class="cm">//            │         此处是双保险；32 位平台移位量变为 25，靠它保证写法一致）</span>
+<span class="cm">//            └─ 57 = 64 − 7：右移丢掉低 57 位，把最高 7 位顶到最低位上</span>
+<span class="cm">// hash("ip") = 0x08b7…5cbc：最高字节 0x08 = 0b0000_1000 → 最高 7 位 = 0000100₂ → h2 = 0x04</span></div>
+
+<p class="note">为什么恰好 7 位？因为 h2 要存进 <strong>1 字节的 ctrl byte</strong>，而那个字节的最高位必须留作状态位（见下图）。<code>&amp; 0x7f</code> 在 64 位平台上是双保险（右移后本来就只剩 7 位），32 位平台上移位量变为 25，掩码保证写法一致——hashbrown 源码 <code>Tag::full</code> 正是这么写的。</p>
+
+<div class="memory-scene">
+  <div class="scene-title">ctrl byte 的位布局：1 位状态 + 7 位指纹（以写 "ip" 后的 C₀ = 0b0000_0100 为例）</div>
+  <div class="hash-wrap">
+    <div class="seg-bracket">
+      <span class="seg-label">bit 7：状态位（1 位）</span>
+      <span class="seg-label">bit 6…0：h2 指纹（7 位）</span>
+    </div>
+    <div class="hash-strip" role="img" aria-label="ctrl 字节的 8 个位：bit7 是状态位，bit6 到 bit0 依次存放 h2 的 7 位指纹，示例值 0000100">
+      <div class="hc" style="width:56px;min-width:56px"><div class="hc-c deleted">S = 0</div><div class="hc-l">bit 7</div></div>
+      <div class="hc" style="width:40px;min-width:40px"><div class="hc-c full">0</div><div class="hc-l">bit 6</div></div>
+      <div class="hc" style="width:40px;min-width:40px"><div class="hc-c full">0</div><div class="hc-l">bit 5</div></div>
+      <div class="hc" style="width:40px;min-width:40px"><div class="hc-c full">0</div><div class="hc-l">bit 4</div></div>
+      <div class="hc" style="width:40px;min-width:40px"><div class="hc-c full">0</div><div class="hc-l">bit 3</div></div>
+      <div class="hc" style="width:40px;min-width:40px"><div class="hc-c full">1</div><div class="hc-l">bit 2</div></div>
+      <div class="hc" style="width:40px;min-width:40px"><div class="hc-c full">0</div><div class="hc-l">bit 1</div></div>
+      <div class="hc" style="width:40px;min-width:40px"><div class="hc-c full">0</div><div class="hc-l">bit 0</div></div>
+      <div class="hc" style="width:56px;min-width:56px"><div class="hc-c full">0x04</div><div class="hc-l">整字节</div></div>
+    </div>
+  </div>
+  <div class="compare-wrap">
+  <table class="compare-table">
+    <thead>
+      <tr><th>状态位</th><th>整字节</th><th>含义</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>0</td><td>0b0hhh_hhhh（0x00…0x7F，即 h2 本身）</td><td>FULL：桶里有元素，低 7 位 = 指纹</td></tr>
+      <tr><td>1</td><td>0b1000_0000（0x80）</td><td>DELETED：墓碑 —— 探测不能停</td></tr>
+      <tr><td>1</td><td>0b1111_1111（0xFF）</td><td>EMPTY：空槽 —— 探测到此终止</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="note">这个编码的巧妙之处：FULL 字节最高位恒为 0，永远不可能与 EMPTY/DELETED 混淆；SIMD 一条 <code>pcmpeqb</code> 同时完成“筛指纹匹配”和“找 EMPTY”，无需逐位判断。</p>
+</div>
+
+<h3>步骤 ③：hash → pos（取低位 + 掩码）</h3>
+
+<div class="code-block">bucket_mask = buckets - <span class="num">1</span>              <span class="cm">// 4 桶 → 3，8 桶 → 7，16 桶 → 15</span>
+pos = h1(hash) &amp; bucket_mask          <span class="cm">// h1 就是 hash 本身（hash as usize，64 位全保留）</span>
+<span class="cm">// 4 桶表：hash("ip") 的低 2 位 = 0b00 → pos = 0；8 桶表则看低 3 位 = 0b100 → pos = 4</span>
+<span class="cm">// &amp; mask 与 % buckets 完全等价（桶数是 2 的幂时），但取模是除法指令，&amp; 只需一条 and</span></div>
+
+<div class="memory-scene">
+  <div class="scene-title">bucket_mask 详解：为什么 −1，它到底管什么</div>
+  <div class="code-block">buckets = 8   = 0b1_000          <span class="cm">// 2 的幂：二进制里只有一位是 1</span>
+mask    = 7   = 0b0_111          <span class="cm">// 减 1 后：这一位塌成低位全 1 —— 1 的个数 = log2(8) = 3</span>
+
+任意 u64 x  = 0b…1_0110_1010
+pos = x &amp; 0b0_111 = 0b010        <span class="cm">// 高位全清零、低 3 位原样保留 → 结果必然 ∈ [0, 7]</span></div>
+  <div class="steps">
+    <div class="step"><div class="step-num">1</div><div class="step-text"><strong>−1 的原因</strong>：2 的幂只有一位是 1，减 1 恰好把它换成“低位全 1”（0b1000 − 1 = 0b0111）。全 1 的位数 = log2(桶数) = 给所有桶编号所需的位数。</div></div>
+    <div class="step"><div class="step-num">2</div><div class="step-text"><strong>&amp; 掩码的一箭双雕</strong>：既等价于 <code>% 桶数</code>（让 hash 均匀落到每个桶），又是免费的越界保护——结果永远在 <code>0…桶数−1</code> 之内，不需要任何 if 判断。</div></div>
+    <div class="step"><div class="step-num">3</div><div class="step-text"><strong>反例说明为什么必须是 2 的幂</strong>：若桶数 = 6，mask = 0b101 不再全 1——bit 1 恒被清零，下标 2（0b010）和 3（0b011）永远映射不到，部分桶永远空着。所以容量只能沿 4 → 8 → 16 → 32 翻倍。</div></div>
+    <div class="step"><div class="step-num">4</div><div class="step-text"><strong>还有一个数学硬约束</strong>：三角探测的“每组恰好访问一次”只在 mod 2ⁿ 下成立（第九节），非 2 的幂会漏探某些组，探测可能永远遇不到 EMPTY。</div></div>
+  </div>
+  <div class="compare-wrap">
+  <table class="compare-table">
+    <thead>
+      <tr><th>bucket_mask 的三处出场</th><th>表达式</th><th>做的事</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>定起点</td><td><code>pos = h1 &amp; bucket_mask</code></td><td>任意 64 位 hash 钳成合法桶下标</td></tr>
+      <tr><td>管回绕</td><td><code>pos = (pos + stride) &amp; bucket_mask</code></td><td>探测越过表尾时自动绕回开头</td></tr>
+      <tr><td>折映射</td><td><code>(p + j) &amp; bucket_mask</code> · <code>((i−16) &amp; bucket_mask) + 16</code></td><td>组内第 j 字节 / 镜像下标 → 桶下标</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="note">正因为处处要用，<code>RawTableInner</code> 里存的字段干脆就是 <code>bucket_mask</code> 而不是桶数——桶数随用随算：<code>num_buckets() = bucket_mask + 1</code>。它还顺便决定容量：<code>bucket_mask &lt; 8</code> 时容量 = mask 本身（4 桶装 3、8 桶装 7，强制留一个 EMPTY）。</p>
+</div>
+
+<p class="note">h1、h2 的命名来自 SwissTable 论文：<strong>h1 管位置</strong>（只看低位），<strong>h2 管指纹</strong>（只看高位），两者其实是同一个 hash 的不同区段。</p>
+
+<div class="memory-scene">
+  <div class="scene-title">hash("ip") = 0x08b74207b55c5cbc —— 64 个位的瓜分（4 桶表）</div>
+  <div class="bit-ruler" role="img" aria-label="64 位 hash 的瓜分：最高 7 位是 h2 指纹 0000100 即 0x04；中间 55 位本次运算用不到；最低 2 位是 pos 位置 00 即 0">
+    <div class="bit-seg seg-h2">bit 63…57（7 位）<br>h2 = 0000100₂ = 0x04</div>
+    <div class="bit-seg seg-mid">bit 56…2（55 位）· 本次运算用不到</div>
+    <div class="bit-seg seg-pos">bit 1…0<br>= 0b00 → pos = 0</div>
+  </div>
+  <div class="compare-wrap">
+  <table class="compare-table">
+    <thead>
+      <tr><th>桶数 buckets</th><th>bucket_mask</th><th>pos 用 h1 的低几位</th><th>容量上限（7/8）</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>4</td><td>0b11</td><td>2 位</td><td>3</td></tr>
+      <tr><td>8</td><td>0b111</td><td>3 位</td><td>7</td></tr>
+      <tr><td>16</td><td>0b1111</td><td>4 位</td><td>14</td></tr>
+      <tr><td>32</td><td>0b11111</td><td>5 位</td><td>28</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="note"><strong>两段位互不干扰</strong>：pos 只看最低 log2(桶数) 位，h2 只取最高 7 位。只要桶数 ≤ 2⁵⁷（实际远小于），指纹改变不影响位置、位置改变不影响指纹。扩容把 bucket_mask 从 0b11 换成 0b111，相当于给 pos <strong>多看一位</strong>——大多数元素因此挪了位置，但低位恰好相同的元素会原地不动（第七节扩容里的 "42" 就是：<code>&amp;0b11 = 3</code>，<code>&amp;0b111</code> 还是 3），而所有元素的指纹 h2 一个都没变。</p>
+</div>
+
+<h3>流水线全部参数的“身份证”</h3>
+
+<div class="compare-wrap">
+<table class="compare-table">
+  <thead>
+    <tr><th>参数</th><th>本例取值（key="ip"，4 桶表）</th><th>怎么来的</th><th>为什么需要它</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>hash</code></td><td>0x08b74207b55c5cbc</td><td>SipHash 1-3（RandomState 种子 + key 字节流）；本页示例 = FNV-1a 64</td><td>把任意 key 均匀打散到 64 位</td></tr>
+    <tr><td><code>k0, k1</code></td><td>每次运行不同</td><td>进程启动时随机，每个 HashMap 实例再叠加</td><td>攻击者无法构造碰撞 key（防 HashDoS）</td></tr>
+    <tr><td><code>57</code></td><td>—</td><td>64 − 7</td><td>右移后恰好把最高 7 位顶到最低位</td></tr>
+    <tr><td><code>0x7f</code></td><td>0b0111_1111</td><td>7 个指纹位的掩码</td><td>屏蔽状态位；32 位平台同样正确</td></tr>
+    <tr><td><code>h2</code></td><td>0x04</td><td>(hash &gt;&gt; 57) &amp; 0x7f</td><td>写入 ctrl byte 的指纹，SIMD 一次比 16 个，避免逐个比 key</td></tr>
+    <tr><td><code>h1</code></td><td>= hash 本身</td><td>hash as usize（64 位全保留）</td><td>桶位置由它的低位决定</td></tr>
+    <tr><td><code>bucket_mask</code></td><td>0b11 = 3</td><td>桶数 − 1（2 的幂减 1 = 低位全 1 的掩码）</td><td>取模 + 越界钳制 + 回绕映射，一条 and 指令全包（见步骤 ③）</td></tr>
+    <tr><td><code>pos</code></td><td>0</td><td>h1 &amp; bucket_mask（4 桶只看低 2 位）</td><td>探测起点；ctrl byte 与桶共用同一套下标</td></tr>
+    <tr><td><code>Group::WIDTH = 16</code></td><td>—</td><td>SIMD 寄存器宽度（SSE2 16 B；无 SSE2 时为 8）</td><td>一次内存访问读 16 个候选 ctrl byte</td></tr>
+    <tr><td><code>stride</code></td><td>24 B（&amp;str, i32）</td><td>size_of::&lt;(K, V)&gt;()</td><td>桶下标 → 物理地址的换算步长</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>步骤 ④：pos → 组、位、物理地址</h3>
+
+<div class="code-block"><span class="cm">// 从 pos 出发，三个换算走完“下标 → 内存”的最后一程</span>
+group(p)     = ctrl[p .. p + <span class="num">16</span>]              <span class="cm">// SIMD 连读 16 个 ctrl byte，越界部分是填充/镜像</span>
+下标(i)      = (p + j) &amp; bucket_mask          <span class="cm">// 组内第 j 字节（bit j）→ 桶下标</span>
+ctrl_byte(i) = ctrl + i                        <span class="cm">// RawTableInner::ctrl：从 ctrl 指针向高地址数</span>
+bucket(i)    = data_end - (i + <span class="num">1</span>) * stride     <span class="cm">// RawTable::bucket：从 data_end 向低地址数，data_end == ctrl</span>
+<span class="cm">// 写 ctrl[i] 时同步写镜像：镜像下标 = ((i - 16) &amp; bucket_mask) + 16</span>
+<span class="cm">// stride = size_of::&lt;(K, V)&gt;()，对 (&amp;str, i32) 是 24 B</span></div>
+
+<div class="memory-scene">
+  <div class="scene-title">地址标尺：满载 4 桶表（HashMap&lt;&amp;str, i32&gt;，stride = 24 B）</div>
+  <div class="heap-block">
+    <div class="heap-title">一次连续分配 116 B · ctrl 指针 = 基址 + 96（指向 C₀）· data_end = 同一处</div>
+    <div class="hash-wrap">
+      <div class="seg-bracket">
+        <span class="seg-label">桶数据区 +0…+95（下标向低地址数）</span>
+        <span class="seg-label">ctrl 区 +96…+115（下标向高地址数）</span>
+      </div>
+      <div class="hash-strip" role="img" aria-label="地址标尺：T3 在基址加 0，T2 加 24，T1 加 48，T0 加 72；ctrl 指针指向基址加 96 的 C0；C1 在 ctrl 加 1，T1 在 data_end 减 48；镜像 m0 到 m3 在基址加 112 到 115">
+        <div class="hc" style="width:66px;min-width:66px"><div class="hc-b uninit">未初始化</div><div class="hc-l">T₃ · +0</div></div>
+        <div class="hc" style="width:66px;min-width:66px"><div class="hc-b uninit">未初始化</div><div class="hc-l">T₂ · +24</div></div>
+        <div class="hc" style="width:66px;min-width:66px"><div class="hc-b used probe">"key":3</div><div class="hc-l">T₁ · +48</div></div>
+        <div class="hc" style="width:66px;min-width:66px"><div class="hc-b used">"ip":1</div><div class="hc-l">T₀ · +72</div></div>
+        <div class="hc"><div class="hc-c full">0x04</div><div class="hc-l">C₀ +96</div></div>
+        <div class="hc"><div class="hc-c full probe">0x1e</div><div class="hc-l">C₁ +97</div></div>
+        <div class="hc"><div class="hc-c empty">0xff</div><div class="hc-l">C₂ +98</div></div>
+        <div class="hc"><div class="hc-c full">0x03</div><div class="hc-l">C₃ +99</div></div>
+        <div class="hc"><div class="hc-c empty pad">0xff</div><div class="hc-l">C₄…C₁₅</div></div>
+        <div class="hc"><div class="hc-c full mirror">0x04</div><div class="hc-l">m₀ +112</div></div>
+        <div class="hc"><div class="hc-c full mirror probe">0x1e</div><div class="hc-l">m₁ +113</div></div>
+        <div class="hc"><div class="hc-c empty mirror">0xff</div><div class="hc-l">m₂ +114</div></div>
+        <div class="hc"><div class="hc-c full mirror">0x03</div><div class="hc-l">m₃ +115</div></div>
+      </div>
+    </div>
+    <div class="hash-split" style="margin-top: 10px">
+      <span class="hs-seg h1">ctrl byte：同一下标 i=1 → ctrl + 1 = 基址 +97（向高地址）</span>
+      <span class="hs-seg h2">桶数据：同一 i=1 → data_end − 2×24 = 基址 +48（向低地址）</span>
+    </div>
+  </div>
+  <p class="note">取基址 = 0x7f3a_00a0，则 ctrl = 基址 + 96 = 0x7f3a_0100（与第二节状态 B 的栈帧一致）。蓝框标出<strong>同一下标 i = 1</strong> 的两个身影：ctrl byte C₁（+97 = 0x7f3a_0101）与桶 T₁（+48 = 0x7f3a_00d0）。它们相距 49 字节，但由同一个下标管辖——<code>ctrl[i]</code> 是 T_i 的“户口记录”。</p>
+
+  <div class="flex-row">
+    <div class="flex-col grow">
+      <h3>查找 get("ip") 的定位链条（满载 4 桶表，基址 0x7f3a_00a0，ctrl = 0x7f3a_0100）</h3>
+      <div class="steps">
+        <div class="step"><div class="step-num">1</div><div class="step-text">现算 hash：把 "ip" 的两个字节 <code>0x69 0x70</code> 喂给哈希函数 → <code>hash = 0x08b74207b55c5cbc</code>。表里<strong>没有存</strong> hash，每次调用都重算。</div></div>
+        <div class="step"><div class="step-num">2</div><div class="step-text">一拆为二：<code>h2 = (hash &gt;&gt; 57) &amp; 0x7f</code> —— 最高 7 位 <code>0000100₂</code> → <strong>h2 = 0x04</strong>（待比较的指纹值）；<code>pos = hash &amp; 0b11</code> —— 最低 2 位 <code>0b00</code> → <strong>pos = 0</strong>（起始下标，4 桶表 bucket_mask = 3）。</div></div>
+        <div class="step"><div class="step-num">3</div><div class="step-text">读组：<code>Group::load(ctrl + 0)</code> —— 从地址 <code>0x7f3a_0100</code> 一条 <code>movdqu</code> 连读 16 字节，覆盖 <code>0x7f3a_0100…0x7f3a_010f</code>。</div></div>
+        <div class="step"><div class="step-num">4</div><div class="step-text">组内容 = <code>[C₀=0x04, C₁=0x1e, C₂=0xFF, C₃=0x03, C₄…C₁₅=0xFF]</code>：真实 ctrl 4 字节 + 恒 EMPTY 的填充 12 字节（4 桶表的 group@0 还够不到镜像区）。</div></div>
+        <div class="step"><div class="step-num">5</div><div class="step-text">SIMD 筛指纹：一条 <code>pcmpeqb</code> 让 16 字节各自与 <code>0x04</code> 比较 → 16 位掩码 <code>0b…0000_0001</code>，只有 bit 0 命中。逐个核对：C₀ = 0x04 ✓；C₁ = 0x1e ✗；C₃ = 0x03 ✗；C₂、C₄…C₁₅ = 0xFF ✗。</div></div>
+        <div class="step"><div class="step-num">6</div><div class="step-text">换算桶下标：命中位 j = 0 → <code>下标 = (pos + j) &amp; bucket_mask = (0 + 0) &amp; 3 = 0</code>。</div></div>
+        <div class="step"><div class="step-num">7</div><div class="step-text">换算桶地址：<code>bucket(0) = data_end − (0+1) × 24 = 0x7f3a_0100 − 0x18 = 0x7f3a_00e8</code>（基址 +72）—— 逆序布局中下标 0 离 ctrl 最近。</div></div>
+        <div class="step"><div class="step-num">8</div><div class="step-text">读桶并比较 key：从 <code>0x7f3a_00e8</code> 读出 T₀ = ("ip", 1)，<code>"ip" == "ip"</code> ✓。若 key 不等 → 回组内下一个匹配位；无匹配且组含 EMPTY → None（右侧 get("zz") 走的正是那条路）。</div></div>
+        <div class="step"><div class="step-num">9</div><div class="step-text">返回 <code>Some(&amp;1)</code>。全程：1 次组加载、0 次探测跳跃、1 轮 SIMD 指纹比较、1 次 key 比较。</div></div>
+      </div>
+    </div>
+    <div class="flex-col grow">
+      <h3>插入 insert("key") 的定位链条（插入前：ip@0、42@3，items = 2，growth_left = 1）</h3>
+      <div class="steps">
+        <div class="step"><div class="step-num">1</div><div class="step-text"><code>reserve(1)</code>：<code>growth_left = 1 ≥ 1</code> → 空间足够，不触发 rehash，直接探测。</div></div>
+        <div class="step"><div class="step-num">2</div><div class="step-text"><code>hash("key") = 0x3dc94a19365b10ec</code> → <code>h2 = 0x1e</code>（最高 7 位 <code>0011110₂</code>）、<code>pos = hash &amp; 0b11 = 0b00 = 0</code>。</div></div>
+        <div class="step"><div class="step-num">3</div><div class="step-text">读组：<code>Group::load(0x7f3a_0100)</code> → <code>[0x04, 0xFF, 0xFF, 0x03, 0xFF ×12]</code>（此刻 C₁ 还是 EMPTY——key 尚未写入）。</div></div>
+        <div class="step"><div class="step-num">4</div><div class="step-text">找插入槽：筛 h2 匹配位 → 无一字节等于 0x1e → key 必不存在，<strong>一次 key 比较都不用做</strong>；同时记下首个 EMPTY/DELETED = byte 1 → 插入下标 <code>(0 + 1) &amp; 3 = 1</code>；组内含 EMPTY → 探测到此终止。</div></div>
+        <div class="step"><div class="step-num">5</div><div class="step-text">写 ctrl byte：地址 <code>0x7f3a_0101</code>（ctrl+1）← 0x1e；同步写镜像：下标 <code>((1−16) &amp; 3) + 16 = 17</code> → 地址 <code>0x7f3a_0111</code> ← 0x1e。</div></div>
+        <div class="step"><div class="step-num">6</div><div class="step-text">写桶数据：<code>bucket(1) = 0x7f3a_0100 − 2 × 24 = 0x7f3a_00d0</code>（基址 +48）→ T₁ ← ("key", 3)。</div></div>
+        <div class="step"><div class="step-num">7</div><div class="step-text">记账：<code>growth_left 1 → 0</code>（EMPTY→FULL 各扣 1），<code>items 2 → 3</code> —— 表已满载，下一次 insert 将进入第七节的扩容流程。</div></div>
+      </div>
+    </div>
+  </div>
+  <p class="note">下标换算一览：探测组 p 内第 j 字节 → 下标 <code>(p+j) &amp; mask</code>；下标 i 的 ctrl byte → <code>ctrl+i</code>；下标 i 的桶 → <code>data_end−(i+1)×stride</code>；镜像 → <code>((i−16)&amp;mask)+16</code>。整张表只有 <code>ctrl</code> 一个指针，<code>data_end</code> 就是它——桶的“下标 0”离 ctrl 最近，越靠后的桶地址越低。</p>
+</div>
+
+<h2>四、get：分组扫描 ctrl bytes</h2>
+
+<p>先看连续插入 <code>"ip"</code>、<code>"42"</code>、<code>"key"</code> 后的满载状态（4 桶容量上限 3，<code>growth_left</code> 已归零），再分别查找命中与未命中的 key：</p>
+
+<div class="code-block">map.<span class="fn">insert</span>(<span class="str">"ip"</span>, <span class="num">1</span>);   <span class="cm">// h2=0x04, h1&amp;3=0 → 桶 0</span>
+map.<span class="fn">insert</span>(<span class="str">"42"</span>, <span class="num">2</span>);  <span class="cm">// h2=0x03, h1&amp;3=3 → 桶 3</span>
+map.<span class="fn">insert</span>(<span class="str">"key"</span>, <span class="num">3</span>); <span class="cm">// h2=0x1e, h1&amp;3=0 → 组内首个空位 → 桶 1</span>
+<span class="cm">// ctrl:  [0x04][0x1e][0xff][0x03]   bucket: [ip][key][ -- ][42]</span></div>
+
+<div class="memory-scene">
+  <div class="scene-title">满载状态：4 桶 · items 3 · growth_left 0</div>
+  <div class="heap-block">
+    <div class="heap-title">ctrl 区 20 B（4 真实 + 12 填充 + 4 镜像）· 桶数据 96 B</div>
+    <div class="hash-wrap">
+      <div class="seg-bracket">
+        <span class="seg-label">真实 ctrl 与对应桶（同列对齐）</span>
+        <span class="seg-label">填充 C4…C15 恒为 EMPTY（此处省略）</span>
+        <span class="seg-label">镜像 m0…m3</span>
+      </div>
+      <div class="hash-strip" role="img" aria-label="ctrl 0x04 0x1e 0xff 0x03，桶 ip key 空 42，镜像复制">
+        <div class="hc"><div class="hc-c full">0x04</div><div class="hc-b used">"ip":1</div><div class="hc-l">C₀ / T₀</div></div>
+        <div class="hc"><div class="hc-c full">0x1e</div><div class="hc-b used">"key":3</div><div class="hc-l">C₁ / T₁</div></div>
+        <div class="hc"><div class="hc-c empty">0xff</div><div class="hc-b free">—</div><div class="hc-l">C₂ / T₂</div></div>
+        <div class="hc"><div class="hc-c full">0x03</div><div class="hc-b used">"42":2</div><div class="hc-l">C₃ / T₃</div></div>
+        <div class="hc"><div class="hc-c full mirror">0x04</div><div class="hc-l">m₀</div></div>
+        <div class="hc"><div class="hc-c full mirror">0x1e</div><div class="hc-l">m₁</div></div>
+        <div class="hc"><div class="hc-c empty mirror">0xff</div><div class="hc-l">m₂</div></div>
+        <div class="hc"><div class="hc-c full mirror">0x03</div><div class="hc-l">m₃</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="flex-row">
+    <div class="flex-col grow">
+      <h3>get("ip") → Some(1)：一次命中</h3>
+      <div class="steps">
+        <div class="step"><div class="step-num">1</div><div class="step-text"><code>hash = 0x08b7…5cbc</code>，<code>h2 = 0x04</code>，起始位 <code>h1 &amp; 3 = 0</code>。</div></div>
+        <div class="step"><div class="step-num">2</div><div class="step-text">SIMD 加载 group@0 的 16 个 ctrl byte，筛出 <code>== 0x04</code> 的位：bit 0。</div></div>
+        <div class="step"><div class="step-num">3</div><div class="step-text">候选桶 <code>(0+0) &amp; 3 = 0</code>：比较 key，<code>"ip" == "ip"</code> ✓ → 读取 T₀ 的 <code>(K, V)</code>。</div></div>
+      </div>
+    </div>
+    <div class="flex-col grow">
+      <h3>get("zz") → None：假阳性 + 镜像回绕</h3>
+      <div class="steps">
+        <div class="step"><div class="step-num">1</div><div class="step-text"><code>hash = 0x08f7…5515</code>，<code>h2 = 0x04</code>（与 "ip" 相同！），起始位 <code>h1 &amp; 3 = 1</code>。</div></div>
+        <div class="step"><div class="step-num">2</div><div class="step-text">group@1 = C₁…C₃ + 填充 + <strong>m₀</strong>：只有 bit 15（镜像里的 C₀）匹配 0x04。</div></div>
+        <div class="step"><div class="step-num">3</div><div class="step-text">候选桶 <code>(1+15) &amp; 3 = 0</code>：key <code>"zz" ≠ "ip"</code> ✗ → 组内含 EMPTY → 终止，返回 None。</div></div>
+      </div>
+    </div>
+  </div>
+  <p class="note">探测<strong>只被 EMPTY 终止</strong>，DELETED 墓碑不会——这是墓碑存在的全部意义。h2 只有 7 位，假阳性在所难免，最终由完整的 key 相等性兜底。</p>
+  <p class="note warning">常见误区：<code>pos</code> 不是指纹。pos 是<strong>下标</strong>——回答“去哪找”（hash 低 log2(桶数) 位）；h2 是<strong>字节值</strong>——回答“命中后比什么”（hash 高 7 位）。无碰撞时 get("ip") 的核心判定恰好可写成 <code>ctrl[pos] == h2</code>：下标 0 处的字节值是 0x04。即便某个 key 的 h2 数值恰好等于它的 pos，也只是巧合——两段位互不参与对方的运算（见第三节）。</p>
+  <p class="note">那 <code>ctrl[pos]</code> 是不是就是它的指纹？<strong>只要插入时组内首个空位恰好是起始位，就是</strong>——ip 作为第一个元素插在起始位 0，<code>ctrl[0] = 0x04</code>，get 第一步比较就命中。反例是 "key"：pos 同样为 0，但桶 0 已被占，它落到组内首个空位桶 1，指纹 0x1e 存在 <code>ctrl[1]</code> 而非 <code>ctrl[0]</code>，get 靠组内逐位匹配（bit 1）找到它。更本质地说：<strong>表里没有任何地方记录“key 在哪”</strong>，get 之所以总能找到，是因为探测路径是确定性的——同一 hash + 同一 ctrl 布局，必然重放插入时的路径（remove 只改标记不搬元素；resize 会让布局重洗，但重放依然成立）。</p>
+
+  <div class="memory-scene">
+    <div class="scene-title">为什么一定要以 EMPTY 终止？—— 不能“按容量数够了就停”吗（反证）</div>
+    <div class="flex-row">
+      <div class="flex-col grow">
+        <div class="zone-heap">
+          <div class="zone-label">反证：remove 直接清空、不留墓碑</div>
+          <div class="heap-block">
+            <div class="heap-title">remove("ip") 后 · get("key") 第一步就撞上终止符</div>
+            <div class="hash-wrap">
+              <div class="hash-strip" role="img" aria-label="反证：桶 0 被清空成终止符，get(key) 从 pos 0 出发第一步就停止，桶 1 的 key 从此找不到">
+                <div class="hc"><div class="hc-c empty hot">0xff</div><div class="hc-b free">—</div><div class="hc-l">C₀ · 终止符</div></div>
+                <div class="hc"><div class="hc-c full">0x1e</div><div class="hc-b used cmp">"key":3</div><div class="hc-l">C₁ · key 在此</div></div>
+                <div class="hc"><div class="hc-c empty">0xff</div><div class="hc-b free">—</div><div class="hc-l">C₂</div></div>
+                <div class="hc"><div class="hc-c full">0x03</div><div class="hc-b used">"42":2</div><div class="hc-l">C₃</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="flex-col grow">
+        <div class="steps">
+          <div class="step"><div class="step-num">1</div><div class="step-text">key 的 pos = 0，插入时被 ip 挤到桶 1。remove("ip") 若直接清空桶 0 且“清空即停止”——get("key") 第一步就返回 None：<strong>桶 1 的 key 凭空丢失</strong>。</div></div>
+          <div class="step"><div class="step-num">2</div><div class="step-text">所以删除只有两条正路：留 <strong>DELETED 墓碑</strong>（探测继续前进，路径不断），或证明“清空的位置不挡任何 key 的路”（第六节的 EMPTY/DELETED 双模式判据，维护不变式：已存 key 的路径上、自己所在组之前不许出现 EMPTY）。</div></div>
+          <div class="step"><div class="step-num">3</div><div class="step-text">“按容量停止”的真实代价：元素落点与插入历史相关（组内顺延、墓碑复用），最坏顺延距离 = 全表元素数——用“数够 items 个”当终止条件，miss 查询从 O(1) 退化成 O(n)。EMPTY 是写进内存的 O(1) 路标，SIMD 同一条指令顺手就能看到它。</div></div>
+          <div class="step"><div class="step-num">4</div><div class="step-text">更硬的数学理由：三角探测 mod 2ⁿ 会循环往复，<code>ProbeSeq</code> 的源码注释明说 "This iterator never terminates... The loop must terminate upon reaching a group containing an empty bucket" —— <strong>EMPTY 组是循环唯一的 break 条件</strong>，没有它探测就是死循环。负载因子 7/8（小表更少）保证 EMPTY 永远存在，<code>growth_left</code> 记账系统性地维护这一点（<code>capacity_to_buckets</code> 注释：小表必须留至少 1 个空桶，~L108）。</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2>五、insert：reserve → 探测 → 写入</h2>
+
+<div class="operation-grid">
+  <article class="operation front">
+    <div class="operation-title">第一步 reserve(1)</div>
+    <div class="operation-formula">growth_left &lt; 1 ? 先 rehash : 直接探测</div>
+    <p>空间不足时先扩容或原地 rehash（见第七节）。即使 key 已存在也可能先触发——这是 <code>HashMap::insert</code> 的实现顺序。</p>
+  </article>
+  <article class="operation front">
+    <div class="operation-title">第二步 逐组探测</div>
+    <div class="operation-formula">pos = h1 &amp; bucket_mask</div>
+    <p>每组筛 h2 匹配位并比较 key（找到 → 原地覆盖 value，返回 <code>Some(旧值)</code>）；同时记下组内<strong>首个 EMPTY 或 DELETED</strong> 的槽位。</p>
+  </article>
+  <article class="operation back">
+    <div class="operation-title">第三步 终止条件</div>
+    <div class="operation-formula">group 含 EMPTY → 停</div>
+    <p>停在第一个含 EMPTY 的组，用记下的槽位插入——保证不会越过“本可插入的空位”继续找。</p>
+  </article>
+  <article class="operation back">
+    <div class="operation-title">第四步 写入内存</div>
+    <div class="operation-formula">ctrl[i] = h2 · T_i = (K, V)</div>
+    <p>写 ctrl byte（含镜像）；槽位原为 EMPTY 则 <code>growth_left -= 1</code>，原为 DELETED 则不变；<code>items += 1</code>。</p>
+  </article>
+</div>
+
+<div class="memory-scene">
+  <div class="scene-title">pos 已有数据怎么办？—— 以插入 "key" 为例（pos = 0，桶 0 已被 "ip" 占据）</div>
+  <div class="hash-split" role="img" aria-label="hash(key) 高 7 位 0x1e，起始位 pos = 0，但桶 0 已被 ip 占用">
+    <span class="hs-label">hash("key") =</span>
+    <span class="hs-value">0x3dc94a19365b10ec</span>
+    <span class="hs-arrow">→</span>
+    <span class="hs-seg h2">h2 = 0x1e</span>
+    <span class="hs-arrow">→</span>
+    <span class="hs-seg h1">pos = hash &amp; 0b11 = 0 —— 但桶 0 已被 "ip" 占据</span>
+  </div>
+  <div class="flex-row" style="margin-top: 12px">
+    <div class="flex-col grow">
+      <div class="zone-heap">
+        <div class="zone-label">插入前 · items 2 · growth_left 1 · pos = 0 被占</div>
+        <div class="heap-block">
+          <div class="heap-title">C₀ = 0x04（"ip" 的指纹）≠ h2 = 0x1e → 桶 0 不是 key，也不能覆盖</div>
+          <div class="hash-wrap">
+            <div class="hash-strip" role="img" aria-label="插入前：桶 0 被 ip 占据，pos 落点被占；组内首个空位在 C1">
+              <div class="hc"><div class="hc-c full probe">0x04</div><div class="hc-b used">"ip":1</div><div class="hc-l">C₀ · pos 被占</div></div>
+              <div class="hc"><div class="hc-c empty hot">0xff</div><div class="hc-b free">—</div><div class="hc-l">C₁ · 首个空位</div></div>
+              <div class="hc"><div class="hc-c empty">0xff</div><div class="hc-b free">—</div><div class="hc-l">C₂ · 也空</div></div>
+              <div class="hc"><div class="hc-c full">0x03</div><div class="hc-b used">"42":2</div><div class="hc-l">C₃</div></div>
+              <div class="hc"><div class="hc-c full mirror">0x04</div><div class="hc-l">m₀</div></div>
+              <div class="hc"><div class="hc-c empty mirror">0xff</div><div class="hc-l">m₁</div></div>
+              <div class="hc"><div class="hc-c empty mirror">0xff</div><div class="hc-l">m₂</div></div>
+              <div class="hc"><div class="hc-c full mirror">0x03</div><div class="hc-l">m₃</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="flex-col grow">
+      <div class="zone-heap">
+        <div class="zone-label">插入后 · items 3 · growth_left 0</div>
+        <div class="heap-block">
+          <div class="heap-title">"key" 落在桶 1：组内离 pos 最近的第一个空位，而非桶 2</div>
+          <div class="hash-wrap">
+            <div class="hash-strip" role="img" aria-label="插入后：key 落在桶 1，ctrl[1] 与镜像 m1 写入 0x1e，桶 1 写入 key:3">
+              <div class="hc"><div class="hc-c full">0x04</div><div class="hc-b used">"ip":1</div><div class="hc-l">C₀</div></div>
+              <div class="hc"><div class="hc-c full hot">0x1e</div><div class="hc-b used hot">"key":3</div><div class="hc-l">C₁ · 写入</div></div>
+              <div class="hc"><div class="hc-c empty">0xff</div><div class="hc-b free">—</div><div class="hc-l">C₂</div></div>
+              <div class="hc"><div class="hc-c full">0x03</div><div class="hc-b used">"42":2</div><div class="hc-l">C₃</div></div>
+              <div class="hc"><div class="hc-c full mirror">0x04</div><div class="hc-l">m₀</div></div>
+              <div class="hc"><div class="hc-c full mirror hot">0x1e</div><div class="hc-l">m₁ · 同步</div></div>
+              <div class="hc"><div class="hc-c empty mirror">0xff</div><div class="hc-l">m₂</div></div>
+              <div class="hc"><div class="hc-c full mirror">0x03</div><div class="hc-l">m₃</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="strip-legend">
+    <span class="legend-item"><span class="swatch probe"></span>pos 落点（被占）</span>
+    <span class="legend-item"><span class="swatch hot"></span>实际写入</span>
+  </div>
+  <div class="steps">
+    <div class="step"><div class="step-num">1</div><div class="step-text"><strong>指纹初筛排除</strong>：C₀ = 0x04 ≠ h2 = 0x1e → 桶 0 里不是 "key"，也不许覆盖 —— 7 位指纹不同就无需动用 key 比较。仅当指纹相同时才完整比较 key。</div></div>
+    <div class="step"><div class="step-num">2</div><div class="step-text"><strong>组内找首个空位</strong>：group@0 一次读 16 字节 <code>[0x04, 0xFF, 0xFF, 0x03, 0xFF ×12]</code>，<code>match_empty_or_deleted</code> 的最低命中位 = byte 1。注意：不是从 pos 起逐格线性试探，而是<strong>整组 16 字节并行筛</strong>。</div></div>
+    <div class="step"><div class="step-num">3</div><div class="step-text"><strong>槽位折算</strong>：插入下标 = <code>(pos + j) &amp; bucket_mask = (0 + 1) &amp; 3 = 1</code> —— 组内就近落座。桶 2 虽然也空，但“第一个空位”轮不到它；这个约定保证 get 时能沿同样规则找回。</div></div>
+    <div class="step"><div class="step-num">4</div><div class="step-text"><strong>写入</strong>：<code>ctrl[1] ← 0x1e</code>（镜像 m₁ 同步），T₁ ← ("key", 3)，<code>growth_left 1 → 0</code>（EMPTY→FULL 扣 1）。</div></div>
+    <div class="step"><div class="step-num">5</div><div class="step-text"><strong>整组都满时</strong>：4 桶表不会发生，但大表会 —— <code>move_next</code> 三角探测跳下一组（组偏移 16、48、96…，见第九节），直到遇到含 EMPTY 的组为止。</div></div>
+  </div>
+  <div class="compare-wrap">
+  <table class="compare-table">
+    <thead>
+      <tr><th>探测时组内的字节</th><th>走向</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>FULL 且指纹 == h2</td><td>完整比较 key：相等 → <strong>原地覆盖 value</strong> 直接返回（items / growth_left 不变）；不等 → 当普通占用，继续找槽</td></tr>
+      <tr><td>FULL 且指纹 ≠ h2</td><td>直接排除（指纹初筛的价值：绝大多数占用一步出局），继续组内下一位</td></tr>
+      <tr><td>EMPTY（0xFF）</td><td>记为候选槽；本组含 EMPTY → 探测终止并插入。终止是安全的：表中任何 key 的探测路径上都不会横着 EMPTY（插入选的就是首个空位；erase 只在确保不破坏该不变式时才置 EMPTY）——没找到就是真不存在</td></tr>
+      <tr><td>DELETED（0x80）</td><td>与 EMPTY 一视同仁，取组内更靠前者；<strong>复用墓碑不扣 growth_left</strong>（该配额在删除时未被归还）</td></tr>
+      <tr><td>整组全满</td><td>三角探测跳下一组继续（小表不可能：16 字节窗口总能撞上 EMPTY）</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="note">小表特例：4 / 8 桶表的填充 EMPTY 可能让“组内位折算”指向一个满桶（伪命中），此时 <code>fix_insert_index</code> 从 C₀ 重新扫取首个空位——结果仍是合法空位。另外注意：落座位置只由 pos（hash 低 log2(桶数) 位）和当时的 ctrl 布局决定，<strong>与指纹 h2 无关</strong>——同组元素因此会“扎堆”，指纹只用来在组内分辨谁是谁。</p>
+</div>
+
+<h2>六、remove：EMPTY 还是墓碑？</h2>
+
+<p><code>remove</code> 先按 get 的路径找到桶，然后决定 ctrl byte 的去向：<strong>置 EMPTY（回收一个插入配额）还是留 DELETED 墓碑（探测不能断）</strong>。hashbrown 的判据：</p>
+
+<div class="code-block"><span class="cm">// hashbrown 0.17 src/raw.rs — RawTableInner::erase（语义化）</span>
+index_before = (index - <span class="num">16</span>) &amp; bucket_mask
+empty_before = <span class="ty">Group</span>::<span class="fn">load</span>(ctrl[index_before]).<span class="fn">match_empty</span>()
+empty_after  = <span class="ty">Group</span>::<span class="fn">load</span>(ctrl[index]).<span class="fn">match_empty</span>()
+
+<span class="kw">if</span> empty_before.leading_zeros() + empty_after.trailing_zeros() &gt;= <span class="num">16</span> {
+    ctrl[index] = <span class="ty">DELETED</span>   <span class="cm">// 前后都是 ≥16 连续的 FULL/DELETED：挖墓碑保探测</span>
+} <span class="kw">else</span> {
+    ctrl[index] = <span class="ty">EMPTY</span>     <span class="cm">// 组里本来就有 EMPTY，探测反正会停 → growth_left += 1</span>
+}
+items -= <span class="num">1</span>                   <span class="cm">// 桶数据原地 Drop (K, V)，不搬移其他元素</span></div>
+
+<div class="memory-scene">
+  <div class="scene-title"><code>map.remove("42")</code>：4 桶小表 → 直接置 EMPTY</div>
+  <div class="flex-row">
+    <div class="flex-col grow">
+      <div class="zone-heap">
+        <div class="zone-label">删除前 · items 3 · growth_left 0</div>
+        <div class="heap-block">
+          <div class="heap-title">buckets = 4 · h2("42") = 0x03</div>
+          <div class="hash-wrap">
+            <div class="hash-strip" role="img" aria-label="删除前：ctrl 0x04 0x1e 0xff 0x03，桶 ip key 空 42">
+              <div class="hc"><div class="hc-c full">0x04</div><div class="hc-b used">"ip":1</div><div class="hc-l">C₀ / T₀</div></div>
+              <div class="hc"><div class="hc-c full">0x1e</div><div class="hc-b used">"key":3</div><div class="hc-l">C₁ / T₁</div></div>
+              <div class="hc"><div class="hc-c empty">0xff</div><div class="hc-b free">—</div><div class="hc-l">C₂ / T₂</div></div>
+              <div class="hc"><div class="hc-c full probe">0x03</div><div class="hc-b used cmp">"42":2</div><div class="hc-l">C₃ / T₃</div></div>
+              <div class="hc"><div class="hc-c full mirror">0x04</div><div class="hc-l">m₀</div></div>
+              <div class="hc"><div class="hc-c full mirror">0x1e</div><div class="hc-l">m₁</div></div>
+              <div class="hc"><div class="hc-c empty mirror">0xff</div><div class="hc-l">m₂</div></div>
+              <div class="hc"><div class="hc-c full mirror probe">0x03</div><div class="hc-l">m₃</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="flex-col grow">
+      <div class="zone-heap">
+        <div class="zone-label">删除后 · items 2 · growth_left 1</div>
+        <div class="heap-block">
+          <div class="heap-title">buckets = 4 · T₃ 已 Drop，容量配额 +1</div>
+          <div class="hash-wrap">
+            <div class="hash-strip" role="img" aria-label="删除后：ctrl 0x04 0x1e 0xff 0xff，桶 ip key 空 空">
+              <div class="hc"><div class="hc-c full">0x04</div><div class="hc-b used">"ip":1</div><div class="hc-l">C₀ / T₀</div></div>
+              <div class="hc"><div class="hc-c full">0x1e</div><div class="hc-b used">"key":3</div><div class="hc-l">C₁ / T₁</div></div>
+              <div class="hc"><div class="hc-c empty">0xff</div><div class="hc-b free">—</div><div class="hc-l">C₂ / T₂</div></div>
+              <div class="hc"><div class="hc-c empty hot">0xff</div><div class="hc-b freed">已 Drop</div><div class="hc-l">C₃ / T₃</div></div>
+              <div class="hc"><div class="hc-c full mirror">0x04</div><div class="hc-l">m₀</div></div>
+              <div class="hc"><div class="hc-c full mirror">0x1e</div><div class="hc-l">m₁</div></div>
+              <div class="hc"><div class="hc-c empty mirror">0xff</div><div class="hc-l">m₂</div></div>
+              <div class="hc"><div class="hc-c empty mirror hot">0xff</div><div class="hc-l">m₃</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="steps">
+    <div class="step"><div class="step-num">1</div><div class="step-text">探测找到桶 3；其前后连续非空字节数 = 0 + 3 = 3 &lt; 16 → 置 <strong>EMPTY</strong>。</div></div>
+    <div class="step"><div class="step-num">2</div><div class="step-text"><code>items = 2</code>，<code>growth_left = 1</code>（EMPTY 槽重新计入插入配额）。</div></div>
+    <div class="step"><div class="step-num">3</div><div class="step-text">T₃ 上的 <code>(K, V)</code> 执行 Drop；其余元素一个都不动。</div></div>
+  </div>
+  <p class="note warning">关键事实：桶数 &lt; 16 的表<strong>不可能产生墓碑</strong>——16 字节的组窗口总能覆盖全表并撞上 EMPTY。实践中墓碑最早出现在 32 桶的表里（需要一段 ≥ 16 的连续 FULL 才会挖）。墓碑可被后续 insert 免费复用（<code>growth_left</code> 不减），或在 rehash 时整体消失。</p>
+</div>
+
+<h2>七、扩容：growth_left 耗尽时</h2>
+
+<p>每个 <code>HashMap::insert</code> 都先 <code>reserve(1)</code>。当 <code>items</code> 达到容量上限（桶数 × 7/8，小表另计）时 <code>growth_left</code> 归零，下一次插入触发 rehash：</p>
+
+<div class="code-block"><span class="cm">// hashbrown 0.17 src/raw.rs</span>
+<span class="kw">fn</span> <span class="fn">bucket_mask_to_capacity</span>(bucket_mask: <span class="ty">usize</span>) -&gt; <span class="ty">usize</span> {
+    <span class="kw">if</span> bucket_mask &lt; <span class="num">8</span> { bucket_mask }          <span class="cm">// 4桶→3, 8桶→7：至少留 1 个 EMPTY</span>
+    <span class="kw">else</span> { ((bucket_mask + <span class="num">1</span>) / <span class="num">8</span>) * <span class="num">7</span> }         <span class="cm">// 16→14, 32→28, 64→56 …</span>
+}
+
+<span class="kw">fn</span> <span class="fn">capacity_to_buckets</span>(cap: <span class="ty">usize</span>) -&gt; <span class="ty">usize</span> {
+    <span class="kw">if</span> cap &lt; <span class="num">15</span> { <span class="cm">/* 小表阶梯：&lt;4 → 4 桶，&lt;8 → 8 桶，否则 16 桶 */</span> }
+    (cap * <span class="num">8</span> / <span class="num">7</span>).<span class="fn">next_power_of_two</span>()           <span class="cm">// 大表按 7/8 取整到 2 的幂</span>
+}</div>
+
+<div class="memory-scene">
+  <div class="scene-title">capacity_to_buckets 完整逻辑：想装 cap 个元素 → 开多少桶（raw.rs ~L103-163）</div>
+  <div class="hash-split">
+    <span class="hs-label">输入</span>
+    <span class="hs-seg h1">cap：想容纳的元素数（≥ 1；cap = 0 不会进来 —— HashMap::new 根本不分配）</span>
+    <span class="hs-label">·</span>
+    <span class="hs-seg h2">table_layout.size：(K, V) 的字节数</span>
+  </div>
+  <div class="steps">
+    <div class="step"><div class="step-num">①</div><div class="step-text"><strong>分支边界 cap &lt; 15</strong>：小表用写死的阶梯，大表用公式。边界选 15 让两条路无缝衔接：14×8/7 = 16 还在“16 桶”世界（阶梯的第三档），15×8/7 = 17 → 取 2 的幂 = 32 —— 阶梯管 4/8/16 桶，公式管 ≥ 32 桶，不多不少。</div></div>
+    <div class="step"><div class="step-num">②</div><div class="step-text"><strong>小表分支 · min_cap 档位</strong>：按 (Group::WIDTH, (K,V) 字节数) 选档——≤1B → 14；2..=3B → 7；其余 → 3。目的是保证 <code>桶数 × 元素大小 ≥ ctrl_align(16)</code>：源码注释的表格（size = 1 字节）显示 4 桶分配 36B ÷ 3 元素 = <strong>12 B/元素 (Yikes!)</strong>，16 桶才降到 3.4 —— 元素太小就抬高容量摊薄 ctrl 区开销。</div></div>
+    <div class="step"><div class="step-num">③</div><div class="step-text"><strong>小表分支 · 抬升 + 阶梯</strong>：<code>cap = max(min_cap, 请求)</code>，然后写死三档：<code>&lt;4 → 4 桶；&lt;8 → 8 桶；否则 16 桶</code>。没有 2 桶——容量只有 1，插满即扩（源码注释原话）；没有 1 桶——mask = 0 是“未分配单例”的哨兵。4 桶容量 3，强制留 1 个 EMPTY 保探测终止。</div></div>
+    <div class="step"><div class="step-num">④</div><div class="step-text"><strong>大表分支（cap ≥ 15）</strong>：<code>cap × 8 / 7</code>（7/8 负载的倒数——要装 cap 个至少要这么多槽，整数除法截断）→ <code>next_power_of_two()</code> 向上取 2 的幂。例：15 → 17 → <strong>32 桶</strong>；100 → 114 → <strong>128 桶</strong>。<code>checked_mul</code> 溢出返回 None → 就是那个著名的 <code>capacity overflow</code> panic 的出处。</div></div>
+    <div class="step"><div class="step-num">⑤</div><div class="step-text"><strong>兜底断言</strong>：<code>ensure_bucket_bytes_at_least_ctrl_align</code> 校验 <code>桶数 × size ≥ 16</code>（debug 断言，release 空操作）。大表分支最小 32 桶，size = 1 也有 32 字节，天然满足。</div></div>
+  </div>
+  <div class="compare-wrap">
+  <table class="compare-table">
+    <thead>
+      <tr><th>请求容量 cap</th><th>分支</th><th>计算过程</th><th>桶数</th><th>实际容量</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>1</td><td>小表</td><td>min_cap 3 → 抬到 3 → 第一档</td><td><strong>4</strong></td><td>3</td></tr>
+      <tr><td>4..7</td><td>小表</td><td>cap ≥ 4 → 第二档</td><td>8</td><td>7</td></tr>
+      <tr><td>8..14</td><td>小表</td><td>cap ≥ 8 → 第三档</td><td>16</td><td>14</td></tr>
+      <tr><td>15..28</td><td>大表</td><td>15→17→32 … 28→32</td><td>32</td><td>28</td></tr>
+      <tr><td>100..112</td><td>大表</td><td>100→114→128 … 112→128</td><td>128</td><td>112</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="note">与 <code>bucket_mask_to_capacity</code> 近似互逆：4↔3、8↔7、16↔14、32↔28、128↔112，但向上取整有损耗——<code>with_capacity(15)</code> 得到 32 桶、实际只能装 28 个（多出的配额是取整“白送”的）。首次 insert 走的正是表的第一行：请求 1 → 抬到 3 → 4 桶。</p>
+</div>
+
+<div class="memory-scene">
+  <div class="scene-title">首次 insert 为什么恰好开 4 个桶？—— 三个常量的合谋（raw.rs <code>capacity_to_buckets</code>，~L104）</div>
+  <div class="code-block"><span class="kw">fn</span> <span class="fn">capacity_to_buckets</span>(cap: <span class="ty">usize</span>, table_layout: <span class="ty">TableLayout</span>) -&gt; <span class="ty">Option</span>&lt;<span class="ty">usize</span>&gt; {
+    <span class="kw">if</span> cap &lt; <span class="num">15</span> {
+        <span class="kw">let</span> min_cap = <span class="kw">match</span> (<span class="ty">Group</span>::WIDTH, table_layout.size) {
+            (<span class="num">16</span>, <span class="num">0..=1</span>) =&gt; <span class="num">14</span>,               <span class="cm">// (K, V) ≤ 1 字节</span>
+            (<span class="num">16</span>, <span class="num">2..=3</span>) | (<span class="num">8</span>, <span class="num">0..=1</span>) =&gt; <span class="num">7</span>, <span class="cm">// (K, V) ≤ 3 字节</span>
+            _ =&gt; <span class="num">3</span>,                         <span class="cm">// 典型大小（(&amp;str, i32) = 24 字节落这里）</span>
+        };
+        <span class="kw">let</span> cap = min_cap.<span class="fn">max</span>(cap);
+        <span class="cm">// We don't bother with a table size of 2 buckets since that can only</span>
+        <span class="cm">// hold a single element. Instead, we skip directly to a 4 bucket table</span>
+        <span class="cm">// which can hold 3 elements.</span>
+        <span class="kw">let</span> buckets = <span class="kw">if</span> cap &lt; <span class="num">4</span> { <span class="num">4</span> } <span class="kw">else if</span> cap &lt; <span class="num">8</span> { <span class="num">8</span> } <span class="kw">else</span> { <span class="num">16</span> };
+        <span class="kw">return</span> <span class="ty">Some</span>(buckets);
+    }
+    (cap * <span class="num">8</span> / <span class="num">7</span>).<span class="fn">next_power_of_two</span>()   <span class="cm">// cap ≥ 15 的大表分支</span>
+}</div>
+  <div class="steps">
+    <div class="step"><div class="step-num">1</div><div class="step-text"><strong>请求从 1 开始</strong>：首次 <code>reserve(1)</code> 走 <code>reserve_rehash_inner</code>（~L2739）：单例表容量 0 → resize 目标 = <code>max(0 + 1, 0 + 1) = 1</code>（~L2786）——只请求“再放 1 个”。</div></div>
+    <div class="step"><div class="step-num">2</div><div class="step-text"><strong>常量一 <code>min_cap = 3</code></strong>：按 <code>(Group::WIDTH, (K,V) 大小)</code> 分档，典型大小 ≥ 4 字节落 <code>_ => 3</code> → <code>cap = max(3, 1) = 3</code>。2 桶被跳过的理由写在源码注释里：2 桶只能装 1 个元素，插一个就满、下次立刻扩——索性直接开 4 桶装 3 个。</div></div>
+    <div class="step"><div class="step-num">3</div><div class="step-text"><strong>常量二：阶梯里的字面量 <code>4</code></strong>（~L141）：`cap = 3 < 4` → buckets = 4。这就是“4 桶起步”的直接出处——不是算出来的，是阶梯的最低档写死的。</div></div>
+    <div class="step"><div class="step-num">4</div><div class="step-text"><strong>特例：极小 (K, V) 首次开得更大</strong>——size 2..=3 字节 → 8 桶；size ≤ 1 字节 → <strong>16 桶</strong>。原因：桶数据总字节必须 ≥ ctrl 对齐（16），元素太小就多要几个摊薄 ctrl 区的开销（<code>ensure_bucket_bytes_at_least_ctrl_align</code>）。非 SSE2 平台（WIDTH = 8）只有 size ≤ 1 字节才拿 14 → 16 桶。</div></div>
+  </div>
+  <p class="note">所以“4 桶起步”只对典型 K / V 成立：本页的 <code>HashMap&lt;&amp;str, i32&gt;</code> 首次开 4 桶、装 3 个（growth_left = 3），第 4 次 insert 才扩到 8——正是下方演示；而 <code>HashMap&lt;u8, ()&gt;</code>（(K, V) 共 1 字节）首次 insert 直接开 16 桶。</p>
+</div>
+
+<div class="memory-scene">
+  <div class="scene-title"><code>map.insert("z", 4)</code> 在满载的 4 桶表上 —— 触发 4 → 8 桶扩容</div>
+  <div class="hash-split" role="img" aria-label="hash(z) 高 7 位 0x57，扩容后起始探测位为 5">
+    <span class="hs-label">hash("z") =</span>
+    <span class="hs-value">0xaf63f74c86021a6d</span>
+    <span class="hs-arrow">→</span>
+    <span class="hs-seg h2">h2 = 0x57</span>
+    <span class="hs-arrow">→</span>
+    <span class="hs-seg h1">扩容后 h1 &amp; 7 = 5</span>
+  </div>
+  <div class="flex-row" style="margin-top: 12px">
+    <div class="flex-col grow">
+      <div class="zone-heap">
+        <div class="zone-label">扩容前 · 4 桶 · items 3 · growth_left 0 · 116 B</div>
+        <div class="heap-block">
+          <div class="heap-title">即将被释放的旧分配</div>
+          <div class="hash-wrap">
+            <div class="hash-strip" role="img" aria-label="扩容前：ctrl 0x04 0x1e 0xff 0x03，桶 ip key 空 42">
+              <div class="hc"><div class="hc-c full">0x04</div><div class="hc-b used">"ip":1</div><div class="hc-l">C₀ / T₀</div></div>
+              <div class="hc"><div class="hc-c full">0x1e</div><div class="hc-b used">"key":3</div><div class="hc-l">C₁ / T₁</div></div>
+              <div class="hc"><div class="hc-c empty">0xff</div><div class="hc-b free">—</div><div class="hc-l">C₂ / T₂</div></div>
+              <div class="hc"><div class="hc-c full">0x03</div><div class="hc-b used">"42":2</div><div class="hc-l">C₃ / T₃</div></div>
+              <div class="hc"><div class="hc-c full mirror">0x04</div><div class="hc-l">m₀</div></div>
+              <div class="hc"><div class="hc-c full mirror">0x1e</div><div class="hc-l">m₁</div></div>
+              <div class="hc"><div class="hc-c empty mirror">0xff</div><div class="hc-l">m₂</div></div>
+              <div class="hc"><div class="hc-c full mirror">0x03</div><div class="hc-l">m₃</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="flex-col grow">
+      <div class="zone-heap">
+        <div class="zone-label">扩容后 · 8 桶 · items 4 · growth_left 3 · 216 B</div>
+        <div class="heap-block">
+          <div class="heap-title">0x7f3a_0300 起 · 192 B 桶数据 + 24 B ctrl 区</div>
+          <div class="hash-wrap">
+            <div class="hash-strip" role="img" aria-label="扩容后 8 桶：桶 3 是 42，桶 4 是 ip，桶 5 是 key，桶 6 是 z，ctrl 对应 0x03 0x04 0x1e 0x57">
+              <div class="hc"><div class="hc-c empty">0xff</div><div class="hc-b free">—</div><div class="hc-l">C₀ / T₀</div></div>
+              <div class="hc"><div class="hc-c empty">0xff</div><div class="hc-b free">—</div><div class="hc-l">C₁ / T₁</div></div>
+              <div class="hc"><div class="hc-c empty">0xff</div><div class="hc-b free">—</div><div class="hc-l">C₂ / T₂</div></div>
+              <div class="hc"><div class="hc-c full">0x03</div><div class="hc-b used">"42":2</div><div class="hc-l">C₃ / T₃</div></div>
+              <div class="hc"><div class="hc-c full">0x04</div><div class="hc-b used">"ip":1</div><div class="hc-l">C₄ / T₄</div></div>
+              <div class="hc"><div class="hc-c full">0x1e</div><div class="hc-b used">"key":3</div><div class="hc-l">C₅ / T₅</div></div>
+              <div class="hc"><div class="hc-c full hot">0x57</div><div class="hc-b used hot">"z":4</div><div class="hc-l">C₆ / T₆</div></div>
+              <div class="hc"><div class="hc-c empty">0xff</div><div class="hc-b free">—</div><div class="hc-l">C₇ / T₇</div></div>
+              <div class="hc"><div class="hc-c empty pad">0xff</div><div class="hc-l">C₈…C₁₅</div></div>
+              <div class="hc"><div class="hc-c full mirror">0x03</div><div class="hc-l">m₃</div></div>
+              <div class="hc"><div class="hc-c full mirror">0x04</div><div class="hc-l">m₄</div></div>
+              <div class="hc"><div class="hc-c full mirror">0x1e</div><div class="hc-l">m₅</div></div>
+              <div class="hc"><div class="hc-c full mirror hot">0x57</div><div class="hc-l">m₆</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="steps">
+    <div class="step"><div class="step-num">1</div><div class="step-text"><code>reserve(1)</code>：<code>growth_left = 0 &lt; 1</code> → 进入 rehash 路径。</div></div>
+    <div class="step"><div class="step-num">2</div><div class="step-text">判定：新 items = 4 &gt; 容量 3 ÷ 2 → <strong>扩容</strong>而非原地整理：<code>capacity_to_buckets(max(4, 3+1)) = 8</code> 桶，分配 216 B。</div></div>
+    <div class="step"><div class="step-num">3</div><div class="step-text">按桶序把每个 FULL 桶搬进新表——<strong>key 重新哈希</strong>（hashbrown 不缓存 hash）：ip → 4，key → 5（与 ip 同组顺延一格），42 → 3。墓碑就此全部消失。（T 与 C 逐拍如何落位、相对旧位置怎么移动 → 见下方「搬运逐拍图」）</div></div>
+    <div class="step"><div class="step-num">4</div><div class="step-text">释放旧的 4 桶分配；<code>bucket_mask = 7</code>，<code>growth_left = 7 - 3 = 4</code>。</div></div>
+    <div class="step"><div class="step-num">5</div><div class="step-text">重新探测 "z"：<code>h1 &amp; 7 = 5</code> → group@5 首个空位 bit 1 → 桶 6；<code>ctrl[6] = 0x57</code>，<code>growth_left = 3</code>。</div></div>
+  </div>
+  <p class="note">另一个分支：若 <code>items + 1 ≤ 容量 / 2</code>（表里一半以上是墓碑）则<strong>原地 rehash</strong>——同一块内存重排，只清墓碑不扩容。这也解释了为什么 HashMap 的迭代顺序会在插入/删除后大变：物理位置由 hash 的低位决定，rehash 后全部重新洗牌。</p>
+  <p class="note warning">扩容会更换堆地址并搬动所有桶，任何指向元素的可引用（<code>&amp;V</code> / 迭代器）都不能跨过这次插入存活——借用检查器在编译期就拦住了这类代码。</p>
+</div>
+
+<div class="memory-scene">
+  <div class="scene-title">搬运逐拍图：旧表的 T 和 C 如何落进新表（按旧桶下标 0→3 只遍历 FULL 桶）</div>
+  <div class="code-block"><span class="cm">// resize 的内循环（hashbrown 0.17：FullBucketsIndices 按下标升序挑 FULL 桶）</span>
+① 重新调用 hasher(key)：种子未变 → 得到与插入时<strong>完全相同</strong>的 hash（表里不存 hash，只能重算）
+② 在新表上探测：pos = h1 &amp; 0b111 → 组内首个空位（此刻新 ctrl 里只有已搬入的 FULL）
+③ 新 ctrl[新下标] ← h2（指纹不变），(K, V) 以 <span class="fn">ptr::copy_nonoverlapping</span> 按字节搬到新地址 —— C 与 T 永远成对搬家</div>
+  <div class="flex-row">
+    <div class="flex-col grow">
+      <div class="zone-label" style="color:var(--purple)">快照 ① 搬旧桶 0（ip）：低 3 位 0b100 → 新 pos 4，group@4 全空 → 落桶 4</div>
+      <div class="heap-block">
+        <div class="heap-title">新表 items 1 · growth_left 6</div>
+        <div class="hash-wrap">
+          <div class="hash-strip" role="img" aria-label="快照一：ip 落在新表桶 4，ctrl[4] 为 0x04">
+            <div class="hc" style="width:26px;min-width:26px"><div class="hc-c empty">0xff</div><div class="hc-b free">—</div><div class="hc-l">0</div></div>
+            <div class="hc" style="width:26px;min-width:26px"><div class="hc-c empty">0xff</div><div class="hc-b free">—</div><div class="hc-l">1</div></div>
+            <div class="hc" style="width:26px;min-width:26px"><div class="hc-c empty">0xff</div><div class="hc-b free">—</div><div class="hc-l">2</div></div>
+            <div class="hc" style="width:26px;min-width:26px"><div class="hc-c empty">0xff</div><div class="hc-b free">—</div><div class="hc-l">3</div></div>
+            <div class="hc" style="width:26px;min-width:26px"><div class="hc-c full hot">0x04</div><div class="hc-b used hot">ip:1</div><div class="hc-l">4</div></div>
+            <div class="hc" style="width:26px;min-width:26px"><div class="hc-c empty">0xff</div><div class="hc-b free">—</div><div class="hc-l">5</div></div>
+            <div class="hc" style="width:26px;min-width:26px"><div class="hc-c empty">0xff</div><div class="hc-b free">—</div><div class="hc-l">6</div></div>
+            <div class="hc" style="width:26px;min-width:26px"><div class="hc-c empty">0xff</div><div class="hc-b free">—</div><div class="hc-l">7</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="flex-col grow">
+      <div class="zone-label" style="color:var(--purple)">快照 ② 搬旧桶 1（key）：低 3 位 0b100 → 新 pos 同为 4，C₄ 已被 ip 占 → 组内顺延 → 落桶 5</div>
+      <div class="heap-block">
+        <div class="heap-title">新表 items 2 · growth_left 5</div>
+        <div class="hash-wrap">
+          <div class="hash-strip" role="img" aria-label="快照二：key 落在新表桶 5，ctrl[5] 为 0x1e">
+            <div class="hc" style="width:26px;min-width:26px"><div class="hc-c empty">0xff</div><div class="hc-b free">—</div><div class="hc-l">0</div></div>
+            <div class="hc" style="width:26px;min-width:26px"><div class="hc-c empty">0xff</div><div class="hc-b free">—</div><div class="hc-l">1</div></div>
+            <div class="hc" style="width:26px;min-width:26px"><div class="hc-c empty">0xff</div><div class="hc-b free">—</div><div class="hc-l">2</div></div>
+            <div class="hc" style="width:26px;min-width:26px"><div class="hc-c empty">0xff</div><div class="hc-b free">—</div><div class="hc-l">3</div></div>
+            <div class="hc" style="width:26px;min-width:26px"><div class="hc-c full">0x04</div><div class="hc-b used">ip:1</div><div class="hc-l">4</div></div>
+            <div class="hc" style="width:26px;min-width:26px"><div class="hc-c full hot">0x1e</div><div class="hc-b used hot">key:3</div><div class="hc-l">5</div></div>
+            <div class="hc" style="width:26px;min-width:26px"><div class="hc-c empty">0xff</div><div class="hc-b free">—</div><div class="hc-l">6</div></div>
+            <div class="hc" style="width:26px;min-width:26px"><div class="hc-c empty">0xff</div><div class="hc-b free">—</div><div class="hc-l">7</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="flex-col grow">
+      <div class="zone-label" style="color:var(--purple)">快照 ③ 搬旧桶 3（42）：低 3 位 0b011 → 新 pos 3，组内首空 bit 0 → 落桶 3（原地不动）</div>
+      <div class="heap-block">
+        <div class="heap-title">新表 items 3 · growth_left 4（旧桶 2 本来就空，无事可做）</div>
+        <div class="hash-wrap">
+          <div class="hash-strip" role="img" aria-label="快照三：42 落在新表桶 3，ctrl[3] 为 0x03，位置与旧表相同">
+            <div class="hc" style="width:26px;min-width:26px"><div class="hc-c empty">0xff</div><div class="hc-b free">—</div><div class="hc-l">0</div></div>
+            <div class="hc" style="width:26px;min-width:26px"><div class="hc-c empty">0xff</div><div class="hc-b free">—</div><div class="hc-l">1</div></div>
+            <div class="hc" style="width:26px;min-width:26px"><div class="hc-c empty">0xff</div><div class="hc-b free">—</div><div class="hc-l">2</div></div>
+            <div class="hc" style="width:26px;min-width:26px"><div class="hc-c full hot">0x03</div><div class="hc-b used hot">42:2</div><div class="hc-l">3</div></div>
+            <div class="hc" style="width:26px;min-width:26px"><div class="hc-c full">0x04</div><div class="hc-b used">ip:1</div><div class="hc-l">4</div></div>
+            <div class="hc" style="width:26px;min-width:26px"><div class="hc-c full">0x1e</div><div class="hc-b used">key:3</div><div class="hc-l">5</div></div>
+            <div class="hc" style="width:26px;min-width:26px"><div class="hc-c empty">0xff</div><div class="hc-b free">—</div><div class="hc-l">6</div></div>
+            <div class="hc" style="width:26px;min-width:26px"><div class="hc-c empty">0xff</div><div class="hc-b free">—</div><div class="hc-l">7</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="compare-wrap">
+  <table class="compare-table">
+    <thead>
+      <tr><th>key</th><th>hash 低 3 位</th><th>旧表位置</th><th>新表位置</th><th>相对移动</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>"ip"</td><td>0b100</td><td>0</td><td>4</td><td>+4：落在自己的新 pos 上（新增位 bit2 = 1 → 旧下标 + 旧桶数）</td></tr>
+      <tr><td>"key"</td><td>0b100</td><td>1</td><td>5</td><td>+4：新 pos 与 ip 相同（都是 4），搬运按旧桶序、ip 先到 → 顺延一格；与 ip 的相对距离保持</td></tr>
+      <tr><td>"42"</td><td>0b011</td><td>3</td><td>3</td><td>0：新增位 bit2 = 0 → 原地不动</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="steps">
+    <div class="step"><div class="step-num">1</div><div class="step-text"><strong>裂桶规律</strong>：mask 从 0b11 换成 0b111 = 多看一位。旧桶 i 的元素只可能去新桶 <code>i</code>（新增位 = 0）或 <code>i + 4</code>（新增位 = 1）——4 桶表裂成 0/4、1/5、2/6、3/7 四对，绝不会跑去别的桶。</div></div>
+    <div class="step"><div class="step-num">2</div><div class="step-text"><strong>同组相对次序保持</strong>：ip 与 key 的新 pos 相同（低 3 位都是 0b100），搬运按旧桶下标升序（源码 <code>FullBucketsIndices</code>），ip（旧桶 0）先落 4，key（旧桶 1）顺延到 5 —— 旧表里 key 本就跟着 ip 一格，新表依旧。</div></div>
+    <div class="step"><div class="step-num">3</div><div class="step-text"><strong>C 与 T 成对搬、指纹不变</strong>：hash 重算结果与插入时相同，h2（0x04 / 0x1e / 0x03）原样写进新下标并双写新镜像；T 是 <code>ptr::copy_nonoverlapping</code> 按字节的位拷贝，随后旧分配整块释放——元素不会被 drop 两次。</div></div>
+    <div class="step"><div class="step-num">4</div><div class="step-text"><strong>墓碑就地蒸发</strong>：遍历器只挑 FULL 桶，DELETED 根本不参与搬家——这就是“扩容顺带清理墓碑”。<code>growth_left</code> 与 <code>items</code> 在全部搬完后统一记账（新容量 − items）。</div></div>
+  </div>
+  <p class="note">“key 重新哈希”的准确含义：hash <strong>结果不变</strong>（种子在 map 存活期内固定），重新执行的是“算 hash + 重新探测”这两步——因为表里不缓存 hash。变的是取位位数（低 2 位 → 低 3 位）与探测布局。若旧表里 key 先于 ip 插入，这里 key 会占 4、ip 顺延到 5：布局不同但同样合法。</p>
+  <div class="code-block"><span class="cm">// 扩容时每个元素都要重新 hash + 重新定位吗？—— 是，无一例外（raw.rs resize_inner）</span>
+<span class="kw">for</span> full_byte_index <span class="kw">in</span> self.<span class="fn">full_buckets_indices</span>() {
+    <span class="kw">let</span> hash = <span class="fn">hasher</span>(self, full_byte_index);        <span class="cm">// ~L2906：重算 hash，一个都不少</span>
+    <span class="kw">let</span> (new_index, _) = new_table.<span class="fn">prepare_insert_index</span>(hash);  <span class="cm">// ~L2918：重新定位</span>
+    <span class="cm">//   └ find_insert_index：pos = h1 &amp; 新mask → 组内首个空位</span>
+    <span class="cm">//   └ fix_insert_index：小表伪命中修正（4 桶 &lt; Group::WIDTH 16，每次落位都过这道检查）</span>
+    <span class="cm">// copy_nonoverlapping 搬 (K, V) —— 唯一省掉的是 key 比较（元素已知唯一、新表无墓碑）</span>
+}
+<span class="cm">// hasher 闭包（~L965，原地 rehash 分支 ~L1013 同款）：</span>
+<span class="cm">//   |table, index| hasher(table.bucket::&lt;T&gt;(index).as_ref())</span></div>
+  <p class="note warning">为什么不能跳过？桶里只有 (K, V)、ctrl 里只有 7 位指纹——<strong>表里没存 hash</strong>，想知道 key 该去哪只能重调 hasher。三个易错点：① 重算结果与当初完全相同（种子固定，布局是确定性的）；② "42" 这类没动的元素也照样重算——重算是为了“知道该去哪”，新位置恰好等于旧位置只是结果；③ 代价 = O(n) 次 hash + O(n) 次探测定位 + O(n) 次拷贝，这正是 resize 是 O(n)、insert 只是均摊 O(1) 的来源。对比：Java HashMap 的 Node 里缓存了 int hash（扩容可免 hasher 调用，但重新定位仍不可避免——布局变了；代价是每元素多 4-8 字节）——Rust std 选择省内存，把成本留到 resize。</p>
+</div>
+
+<h2>八、交互操作台</h2>
+<p>操作台从 <code>HashMap::new()</code> 开始，完整复刻上文语义：reserve → 探测 → 写 ctrl / 桶。想重现第七节的扩容，直接点 <code>重现扩容序列</code>（依次 insert ip / 42 / key / z），或自行插入 4 个 key。蓝框 = 探测过的 ctrl byte，黄框 = 比较 key 的候选桶，绿框 = 命中/写入，橙框 = 释放。</p>
+
+<section class="lab" aria-labelledby="lab-title">
+  <div class="lab-header">
+    <div>
+      <h3 class="lab-title" id="lab-title">可交互内存快照</h3>
+      <div class="lab-state" id="labState">未分配 · items=0 · growth_left=0</div>
+    </div>
+    <div class="controls">
+      <div class="field">
+        <label for="keyInput">key（≤8 字符）</label>
+        <input id="keyInput" type="text" value="ip" maxlength="8" spellcheck="false">
+      </div>
+      <div class="field">
+        <label for="valInput">value</label>
+        <input id="valInput" type="text" value="1" maxlength="6" spellcheck="false">
+      </div>
+      <button class="btn primary" type="button" data-op="insert">insert</button>
+      <button class="btn" type="button" data-op="get">get</button>
+      <button class="btn warn" type="button" data-op="remove">remove</button>
+      <button class="btn" type="button" data-op="demo">重现扩容序列</button>
+      <button class="btn ghost" type="button" data-op="reset">重置</button>
+    </div>
+  </div>
+
+  <div class="flex-row">
+    <div class="flex-col">
+      <div class="zone-stack">
+        <div class="zone-label">栈 (Stack)</div>
+        <div class="stack-frame">
+          <div class="frame-title">RawTableInner —— 实时状态</div>
+          <div class="stack-row">
+            <div class="stack-cell field">bucket_mask</div><div class="stack-cell value" id="fMask">0</div><div class="stack-cell type">usize</div><div class="stack-cell size">8 B</div>
+          </div>
+          <div class="stack-row">
+            <div class="stack-cell field">ctrl</div><div class="stack-cell value" id="fCtrl">→ 静态 EMPTY 表</div><div class="stack-cell type">NonNull&lt;u8&gt;</div><div class="stack-cell size">8 B</div>
+          </div>
+          <div class="stack-row">
+            <div class="stack-cell field">growth_left</div><div class="stack-cell value" id="fGrowth">0</div><div class="stack-cell type">usize</div><div class="stack-cell size">8 B</div>
+          </div>
+          <div class="stack-row">
+            <div class="stack-cell field">items</div><div class="stack-cell value" id="fItems">0</div><div class="stack-cell type">usize</div><div class="stack-cell size">8 B</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="flex-col grow">
+      <div class="zone-heap">
+        <div class="zone-label">堆 (Heap) —— ctrl bytes 与同列桶</div>
+        <div class="heap-block">
+          <div class="heap-title" id="heapTitle">（未分配）</div>
+          <div class="hash-wrap" id="labStrip"></div>
+        </div>
+        <div class="strip-legend">
+          <span class="legend-item"><span class="swatch full"></span>FULL h2</span>
+          <span class="legend-item"><span class="swatch"></span>EMPTY</span>
+          <span class="legend-item"><span class="swatch deleted"></span>DELETED</span>
+          <span class="legend-item"><span class="swatch probe"></span>探测</span>
+          <span class="legend-item"><span class="swatch cmp"></span>比较 key</span>
+          <span class="legend-item"><span class="swatch hot"></span>命中/写入</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="lab-log" id="labLog" aria-live="polite"></div>
+  <div class="lab-message" id="labMessage">HashMap::new()：无堆分配，ctrl 指向静态 EMPTY 表。试试 insert。</div>
+</section>
+
+<h2>九、哈希与探测的数学</h2>
+
+<div class="code-block"><span class="cm">// 一个 64 位 hash 被拆成两部分使用</span>
+<span class="fn">h2</span>(hash) = (hash &gt;&gt; <span class="num">57</span>) &amp; <span class="num">0x7f</span>        <span class="cm">// 高 7 位 → ctrl byte，供 SIMD 快速筛候选</span>
+<span class="fn">h1</span>(hash) = hash <span class="kw">as</span> <span class="ty">usize</span>              <span class="cm">// 低位 → 决定桶位置</span>
+
+<span class="cm">// 探测序列：三角数探测（triangular probing），以“组”为单位跳跃</span>
+pos_0 = h1(hash) &amp; bucket_mask          <span class="cm">// 起始组</span>
+stride += <span class="num">16</span>; pos_k = (pos + stride) &amp; bucket_mask
+<span class="cm">// 组偏移依次为 0, 16, 48, 96, 160, …（16 × 1, 3, 6, 10, 15 三角数）</span>
+<span class="cm">// 数学保证：mod 2^n 时每个组恰好被访问一次，必在遇到 EMPTY 前覆盖全表</span>
+
+<span class="cm">// 标准库的 hash：SipHash 1-3，种子来自 RandomState（每进程随机，抗 HashDoS）</span>
+<span class="kw">let</span> <span class="kw">mut</span> map = <span class="ty">HashMap</span>::<span class="fn">new</span>();          <span class="cm">// 相同的 key 每次运行得到不同 hash</span>
+<span class="cm">// 追求极致性能可换 fxhash / ahash 等，但需自担碰撞风险</span></div>
+
+<div class="memory-scene">
+  <div class="scene-title">为什么用“组 + ctrl bytes”而不是逐槽比较</div>
+  <div class="steps">
+    <div class="step"><div class="step-num">1</div><div class="step-text">一次 <code>movdqu</code> 加载 16 字节，一条 <code>pcmpeqb</code> 同时比较 16 个 h2 —— 把 16 次内存访问压成 1 次。</div></div>
+    <div class="step"><div class="step-num">2</div><div class="step-text">负载因子 7/8 保证 16 字节的组平均只有 14 个 FULL，h2 匹配平均约 0.1 个，昂贵的 key 比较近乎消失。</div></div>
+    <div class="step"><div class="step-num">3</div><div class="step-text">尾部镜像让任意位置的 group 加载都能安全读满 16 字节，无需分支处理表尾回绕。</div></div>
+  </div>
+</div>
+
+<div class="memory-scene">
+  <div class="scene-title">为什么是三角探测，而不是相邻组逐个（线性）探测？</div>
+  <div class="code-block"><span class="cm">// 三角序列长这样（hashbrown 0.17 src/raw.rs ProbeSeq::move_next，就两行）</span>
+stride += <span class="num">16</span>; pos += stride; pos &amp;= bucket_mask;
+<span class="cm">// 组偏移：0, 16, 48, 96, 160, … = 16 × (0, 1, 3, 6, 10, …) —— 每步多跳一组</span></div>
+  <div class="steps">
+    <div class="step"><div class="step-num">1</div><div class="step-text"><strong>淘汰“相邻组线性”（stride 恒 16）——数学上可行，性能上出局</strong>：它的窗口恰好不重叠地铺满一圈，每个组都会被访问（覆盖性没问题）。致命伤是<strong>聚集</strong>：home 相差 16 倍数的 key（32 桶表里概率 1/16）探测序列完全锁步——A 走 0,16,32,48，B 走 16,32,48,0，从第二步起 B<sub>k</sub> ≡ A<sub>k+1</sub>，碰撞链必然并轨越滚越长；爬过长度 L 的连续满组要 L 步。</div></div>
+    <div class="step"><div class="step-num">2</div><div class="step-text"><strong>淘汰“普通二次探测 k²”——正确性直接出局</strong>：桶数是 2 的幂，而 k² mod 8 只可能取 {0, 1, 4} —— 8 个组只访问 3 个，剩下 5 个组永远探不到：装在那里的元素永远找不到，探测也永远遇不到含 EMPTY 的组（死循环）。在“桶数 = 2 的幂”的世界里，随手写一个二次式几乎必漏。</div></div>
+    <div class="step"><div class="step-num">3</div><div class="step-text"><strong>三角数的置换定理（入选资格）</strong>：组数 G = 2<sup>m</sup> 时，前 G 个组偏移 T<sub>k</sub> = k(k+1)/2 mod G 恰好是 0…G−1 的完美置换——G=8 实测：0,1,3,6,2,7,5,4 ✓。证明一行版：若 T<sub>i</sub> ≡ T<sub>j</sub> (mod 2<sup>m</sup>)，则 (j−i)(j+i+1) ≡ 0 (mod 2<sup>m+1</sup>)；但 j−i 与 j+i+1 一奇一偶（和为 2j+1），偶因子的 2 幂 ≤ m，矛盾。这正是源码注释引用的 fgiesen 博文（triangular-numbers-mod-2n）的结论——于是 G 步内每组恰被访问一次，配合负载因子保证必然撞上含 EMPTY 的窗口，探测必然终止。</div></div>
+    <div class="step"><div class="step-num">4</div><div class="step-text"><strong>跳聚集区的红利</strong>：第一跳 +16 相当于继续线性扫描；随后每步多跳一组——k 步覆盖 k(k+1)/2 个组，越过长度 L 的连续满聚集区只要 O(√L) 步，而线性要 O(L) 步。两条序列即使相遇，下一步的跳距已不同，落点随即分散（64 桶表实测：home 0 与 home 16 的三角序列每一步都落在不同窗口：0,16,48,32 对 16,32,0,48；线性则是逐位锁步）。</div></div>
+    <div class="step"><div class="step-num">5</div><div class="step-text"><strong>小表根本不用出场</strong>：桶数 &lt; 16 时组数 = 1，第一步的窗口经镜像覆盖全表，容量又强制留 EMPTY——一步必停。</div></div>
+  </div>
+  <div class="compare-wrap">
+  <table class="compare-table">
+    <thead>
+      <tr><th>候选探测序列</th><th>mod 2<sup>m</sup> 覆盖所有组？</th><th>聚集行为</th><th>判决</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>相邻组线性（stride 恒 16）</td><td class="yes">✓ 窗口恰好铺满一圈</td><td class="no">home 差 16 倍数即锁步并轨；爬聚集区 O(L)</td><td>正确但聚集最差，出局</td></tr>
+      <tr><td>普通二次 k²</td><td class="no">✗ k² mod 8 ∈ {0,1,4}，漏 5/8 的组</td><td>—</td><td>正确性直接出局</td></tr>
+      <tr><td>三角数 k(k+1)/2</td><td class="yes">✓ 前 G 项是完美置换（有证明）</td><td class="yes">增量递增不锁步；越聚集区 O(√L)</td><td class="yes">入选</td></tr>
+    </tbody>
+  </table>
+  </div>
+</div>
+
+<h2>十、操作复杂度速查</h2>
+
+<div class="compare-wrap">
+<table class="compare-table">
+  <thead>
+    <tr><th>操作</th><th>时间复杂度</th><th>可能 rehash</th><th>内存动作</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>insert(k, v)</code></td><td>均摊 O(1)</td><td class="yes">满容时触发</td><td>写 ctrl[i] = h2 + 写桶 T_i；EMPTY→FULL 扣减 growth_left</td></tr>
+    <tr><td><code>get(k)</code> / <code>contains_key</code></td><td>均摊 O(1)</td><td class="no">否</td><td>组扫描 ctrl，命中候选才读桶比较 key</td></tr>
+    <tr><td><code>remove(k)</code></td><td>O(1)</td><td class="no">否</td><td>ctrl 置 EMPTY 或 DELETED；原地 Drop (K, V)</td></tr>
+    <tr><td>扩容 resize</td><td>O(n)</td><td class="yes">—</td><td>新分配约 2×，全量重哈希，释放旧块</td></tr>
+    <tr><td>原地 rehash</td><td>O(n)</td><td class="no">同一分配</td><td>items ≤ 容量/2 时清理墓碑、重排桶</td></tr>
+    <tr><td>迭代 <code>iter()</code></td><td>O(capacity)</td><td class="no">否</td><td>顺序线性扫 ctrl bytes（缓存友好），顺序不保证</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2>十一、HashMap 与 BTreeMap 的选择</h2>
+
+<div class="compare-wrap">
+<table class="compare-table">
+  <thead>
+    <tr><th>维度</th><th>HashMap&lt;K, V&gt;</th><th>BTreeMap&lt;K, V&gt;</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>内存布局</td><td class="yes">一段连续分配（ctrl + 桶）</td><td>每个节点独立堆分配</td></tr>
+    <tr><td>单次查找</td><td class="yes">均摊 O(1)</td><td>O(log n)，沿树下降</td></tr>
+    <tr><td>有序遍历 / range</td><td class="no">无（顺序随 rehash 变化）</td><td class="yes">按 K 排序</td></tr>
+    <tr><td>K 的约束</td><td><code>Hash + Eq</code></td><td><code>Ord</code></td></tr>
+    <tr><td>缓存局部性</td><td class="yes">高（探测与迭代都是线性扫描）</td><td>中（节点间跳转）</td></tr>
+    <tr><td>典型场景</td><td>缓存、计数、去重</td><td>范围查询、有序输出、前缀遍历</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p class="footer">Rust learning notes · 概念参考 hashbrown 0.17.1 src/raw.rs（std::collections::HashMap 的实现） · 示例哈希为 FNV-1a 64 · 2026-09-07</p>
+
+</main>
+
+<script>
+(() => {
+  const GROUP = 16;
+  const EMPTY = 0xff;
+  const DELETED = 0x80;
+  const FNV_OFFSET = 0xcbf29ce484222325n;
+  const FNV_PRIME = 0x100000001b3n;
+  const U64 = (1n << 64n) - 1n;
+
+  const state = { allocated: false, mask: 0, ctrl: [], buckets: [], items: 0, growthLeft: 0 };
+  let lastVisit = null;
+  const logBlocks = [];
+
+  const stripEl = document.getElementById('labStrip');
+  const stateEl = document.getElementById('labState');
+  const heapTitleEl = document.getElementById('heapTitle');
+  const logEl = document.getElementById('labLog');
+  const messageEl = document.getElementById('labMessage');
+  const keyEl = document.getElementById('keyInput');
+  const valEl = document.getElementById('valInput');
+  const fMask = document.getElementById('fMask');
+  const fCtrl = document.getElementById('fCtrl');
+  const fGrowth = document.getElementById('fGrowth');
+  const fItems = document.getElementById('fItems');
+
+  const esc = s => String(s)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
+  const hexByte = v => '0x' + v.toString(16).padStart(2, '0');
+  const hexHash = h => '0x' + h.toString(16).padStart(16, '0');
+
+  function hash64(key) {
+    let h = FNV_OFFSET;
+    const bytes = new TextEncoder().encode(key);
+    for (const b of bytes) {
+      h ^= BigInt(b);
+      h = (h * FNV_PRIME) & U64;
+    }
+    return h;
+  }
+  const h2Of = hash => Number((hash >> 57n) & 0x7fn);
+  const maskToCapacity = mask => (mask < 8 ? mask : ((mask + 1) / 8) * 7);
+
+  function capacityToBuckets(cap) {
+    if (cap < 15) {
+      cap = Math.max(3, cap);
+      if (cap < 4) return 4;
+      if (cap < 8) return 8;
+      return 16;
+    }
+    const adjusted = Math.ceil((cap * 8) / 7);
+    let p = 1;
+    while (p < adjusted) p *= 2;
+    return p;
+  }
+
+  function newVisit() {
+    return { cols: new Set(), compared: [], hit: null, wrote: null, freed: null, resized: false };
+  }
+  function colKeyOf(buckets, gi) {
+    if (buckets < GROUP) {
+      if (gi < GROUP) return gi < buckets ? 'r' + gi : 'p' + gi;
+      return 'm' + (gi - GROUP);
+    }
+    return gi < buckets ? 'r' + gi : 'm' + (gi - buckets);
+  }
+  function regionByteAt(ctrl, buckets, gi) {
+    if (buckets < GROUP) {
+      if (gi < GROUP) return gi < buckets ? ctrl[gi] : EMPTY;
+      return ctrl[gi - GROUP];
+    }
+    return gi < buckets ? ctrl[gi] : ctrl[gi - buckets];
+  }
+  function groupAt(sim, pos, visit) {
+    const buckets = sim.ctrl.length;
+    const bytes = [];
+    for (let j = 0; j < GROUP; j++) {
+      const gi = pos + j;
+      bytes.push(regionByteAt(sim.ctrl, buckets, gi));
+      if (visit) visit.cols.add(colKeyOf(buckets, gi));
+    }
+    return bytes;
+  }
+  function fixInsertIndex(sim, raw) {
+    if (sim.ctrl[raw] !== EMPTY && sim.ctrl[raw] !== DELETED) {
+      for (let i = 0; i < sim.ctrl.length; i++) {
+        if (sim.ctrl[i] === EMPTY || sim.ctrl[i] === DELETED) return i;
+      }
+    }
+    return raw;
+  }
+  function findOrInsertIndex(sim, key, hash, steps, visit) {
+    const h2v = h2Of(hash);
+    let insertIndex = null;
+    let pos = Number(hash & BigInt(sim.mask));
+    let stride = 0;
+    steps.push({ t: `探测起始 pos = h1 & bucket_mask = ${pos}`, c: 'info' });
+    for (let guard = 0; guard < 200; guard++) {
+      const group = groupAt(sim, pos, visit);
+      const matchBits = [];
+      group.forEach((b, j) => { if (b === h2v) matchBits.push(j); });
+      for (const j of matchBits) {
+        const idx = (pos + j) & sim.mask;
+        if (visit) visit.compared.push(idx);
+        if (sim.buckets[idx] && sim.buckets[idx].key === key) {
+          steps.push({ t: `group@${pos}: h2 命中 bit ${j} → 桶 ${idx}，key 相等 → 找到`, c: 'hit' });
+          return { kind: 'found', index: idx };
+        }
+        steps.push({ t: `group@${pos}: h2 命中 bit ${j} → 桶 ${idx}，key 不等，继续`, c: 'warn' });
+      }
+      if (insertIndex === null) {
+        const j = group.findIndex(b => b === EMPTY || b === DELETED);
+        if (j !== -1) insertIndex = (pos + j) & sim.mask;
+      }
+      if (insertIndex !== null && group.some(b => b === EMPTY)) {
+        return { kind: 'insert', index: fixInsertIndex(sim, insertIndex) };
+      }
+      stride += GROUP;
+      pos = (pos + stride) & sim.mask;
+    }
+    throw new Error('probe overflow');
+  }
+  function getProbe(sim, key, hash, steps, visit) {
+    if (!sim.allocated) {
+      steps.push({ t: '表未分配：ctrl 指向静态 EMPTY 表 → 第一组全 0xFF → 探测终止', c: 'info' });
+      return null;
+    }
+    const h2v = h2Of(hash);
+    let pos = Number(hash & BigInt(sim.mask));
+    let stride = 0;
+    steps.push({ t: `探测起始 pos = h1 & bucket_mask = ${pos}`, c: 'info' });
+    for (let guard = 0; guard < 200; guard++) {
+      const group = groupAt(sim, pos, visit);
+      const matchBits = [];
+      group.forEach((b, j) => { if (b === h2v) matchBits.push(j); });
+      for (const j of matchBits) {
+        const idx = (pos + j) & sim.mask;
+        if (visit) visit.compared.push(idx);
+        if (sim.buckets[idx] && sim.buckets[idx].key === key) {
+          steps.push({ t: `group@${pos}: h2 命中 bit ${j} → 桶 ${idx}，key 相等 → 命中`, c: 'hit' });
+          return idx;
+        }
+        steps.push({ t: `group@${pos}: h2 命中 bit ${j} → 桶 ${idx}，key 不等，继续`, c: 'warn' });
+      }
+      if (group.some(b => b === EMPTY)) {
+        steps.push({ t: `group@${pos}: 无 h2 匹配且含 EMPTY → 探测终止`, c: 'info' });
+        return null;
+      }
+      stride += GROUP;
+      pos = (pos + stride) & sim.mask;
+    }
+    throw new Error('probe overflow');
+  }
+
+  function allocFresh(buckets) {
+    return {
+      allocated: true,
+      mask: buckets - 1,
+      ctrl: new Array(buckets).fill(EMPTY),
+      buckets: new Array(buckets).fill(null),
+      items: 0,
+      growthLeft: maskToCapacity(buckets - 1),
+    };
+  }
+  function rehashInto(fresh, old, steps) {
+    const moved = [];
+    for (let i = 0; i < old.ctrl.length; i++) {
+      if (!old.buckets[i]) continue;
+      const entry = old.buckets[i];
+      const r = findOrInsertIndex(fresh, entry.key, entry.hash, [], null);
+      fresh.ctrl[r.index] = h2Of(entry.hash);
+      fresh.buckets[r.index] = entry;
+      fresh.items += 1;
+      fresh.growthLeft = maskToCapacity(fresh.mask) - fresh.items;
+      moved.push(`${entry.key}→${r.index}`);
+    }
+    if (steps) steps.push({ t: `rehash: ${moved.join(' ')}`, c: 'info' });
+    return moved;
+  }
+  function replaceSim(next) {
+    state.allocated = next.allocated;
+    state.mask = next.mask;
+    state.ctrl = next.ctrl;
+    state.buckets = next.buckets;
+    state.items = next.items;
+    state.growthLeft = next.growthLeft;
+  }
+  function reserve(sim, additional, steps, visit) {
+    if (additional <= sim.growthLeft) return false;
+    const fullCap = maskToCapacity(sim.mask);
+    const newItems = sim.items + additional;
+    if (sim.allocated && newItems <= Math.floor(fullCap / 2)) {
+      steps.push({ t: `reserve(${additional}): growth_left=${sim.growthLeft} 不足，但 items+${additional} ≤ 容量/2 → 原地 rehash 清理墓碑（桶数不变）`, c: 'warn' });
+      const fresh = allocFresh(sim.ctrl.length);
+      rehashInto(fresh, sim, steps);
+      replaceSim(fresh);
+      if (visit) visit.resized = true;
+      return true;
+    }
+    const target = sim.allocated ? Math.max(newItems, fullCap + 1) : Math.max(newItems, 1);
+    const newBuckets = capacityToBuckets(target);
+    steps.push({ t: `reserve(${additional}): growth_left=${sim.growthLeft} 不足 → 扩容 ${sim.allocated ? sim.ctrl.length : 0} → ${newBuckets} 桶，全量 rehash（key 重新哈希，墓碑消失）`, c: 'warn' });
+    const fresh = allocFresh(newBuckets);
+    rehashInto(fresh, sim, steps);
+    replaceSim(fresh);
+    if (visit) visit.resized = true;
+    return true;
+  }
+
+  function opInsert(key, value) {
+    const steps = [];
+    const visit = newVisit();
+    const hash = hash64(key);
+    steps.push({ t: `hash(${JSON.stringify(key)}) = ${hexHash(hash)}（示例用 FNV-1a 64）`, c: 'info' });
+    steps.push({ t: `h2 = hash >> 57 = ${hexByte(h2Of(hash))}`, c: 'info' });
+    reserve(state, 1, steps, visit);
+    const r = findOrInsertIndex(state, key, hash, steps, visit);
+    if (r.kind === 'found') {
+      const old = state.buckets[r.index].value;
+      state.buckets[r.index].value = value;
+      visit.hit = r.index;
+      steps.push({ t: `桶 ${r.index} 原地覆盖 value：${JSON.stringify(old)} → ${JSON.stringify(value)}（ctrl 与 growth_left 不变）`, c: 'hit' });
+      return { steps, visit, title: `insert(${JSON.stringify(key)}, ${JSON.stringify(value)}) —— key 已存在` };
+    }
+    const idx = r.index;
+    const oldCtrl = state.ctrl[idx];
+    state.ctrl[idx] = h2Of(hash);
+    if (oldCtrl === EMPTY) state.growthLeft -= 1;
+    state.buckets[idx] = { key, value, hash };
+    state.items += 1;
+    visit.wrote = idx;
+    steps.push({ t: `写入：ctrl[${idx}] = ${hexByte(h2Of(hash))}（${oldCtrl === EMPTY ? 'EMPTY → FULL，growth_left-1' : 'DELETED → FULL，growth_left 不变'}）· 桶 ${idx} = ${JSON.stringify(key)}:${JSON.stringify(value)} · items=${state.items}`, c: 'hit' });
+    return { steps, visit, title: `insert(${JSON.stringify(key)}, ${JSON.stringify(value)})` };
+  }
+  function opGet(key) {
+    const steps = [];
+    const visit = newVisit();
+    const hash = hash64(key);
+    steps.push({ t: `hash(${JSON.stringify(key)}) = ${hexHash(hash)} · h2 = ${hexByte(h2Of(hash))}`, c: 'info' });
+    const idx = getProbe(state, key, hash, steps, visit);
+    if (idx === null) {
+      steps.push({ t: `get(${JSON.stringify(key)}) → None`, c: 'hit' });
+      return { steps, visit, title: `get(${JSON.stringify(key)})` };
+    }
+    visit.hit = idx;
+    steps.push({ t: `get(${JSON.stringify(key)}) → Some(${JSON.stringify(state.buckets[idx].value)})，读取桶 ${idx} 的 (K, V)`, c: 'hit' });
+    return { steps, visit, title: `get(${JSON.stringify(key)})` };
+  }
+  function opRemove(key) {
+    const steps = [];
+    const visit = newVisit();
+    const hash = hash64(key);
+    steps.push({ t: `hash(${JSON.stringify(key)}) = ${hexHash(hash)} · h2 = ${hexByte(h2Of(hash))}`, c: 'info' });
+    const idx = getProbe(state, key, hash, steps, visit);
+    if (idx === null) {
+      steps.push({ t: `remove(${JSON.stringify(key)}) → None`, c: 'hit' });
+      return { steps, visit, title: `remove(${JSON.stringify(key)})` };
+    }
+    const buckets = state.ctrl.length;
+    let before = 0;
+    for (let k = 1; k <= GROUP; k++) {
+      if (state.ctrl[(((idx - k) % buckets) + buckets) % buckets] === EMPTY) break;
+      before += 1;
+    }
+    let after = 0;
+    for (let k = 0; k < GROUP; k++) {
+      if (state.ctrl[(idx + k) % buckets] === EMPTY) break;
+      after += 1;
+    }
+    const useTombstone = before + after >= GROUP;
+    state.ctrl[idx] = useTombstone ? DELETED : EMPTY;
+    state.items -= 1;
+    if (!useTombstone) state.growthLeft += 1;
+    state.buckets[idx] = null;
+    visit.freed = idx;
+    steps.push({ t: `删除桶 ${idx}：前后连续非空 ${before}+${after} = ${before + after} ${useTombstone ? '≥' : '<'} 16 → ctrl 置 ${useTombstone ? 'DELETED 0x80（墓碑，growth_left 不变）' : 'EMPTY 0xFF（growth_left+1）'}`, c: useTombstone ? 'warn' : 'hit' });
+    steps.push({ t: `Drop 桶 ${idx} 的 (K, V) · items=${state.items}`, c: 'hit' });
+    return { steps, visit, title: `remove(${JSON.stringify(key)})` };
+  }
+
+  function render() {
+    fMask.textContent = String(state.mask);
+    fCtrl.textContent = state.allocated ? '0x7f3a_0100' : '→ 静态 EMPTY 表';
+    fGrowth.textContent = String(state.growthLeft);
+    fItems.textContent = String(state.items);
+
+    if (!state.allocated) {
+      stateEl.textContent = '未分配 · items=0 · growth_left=0';
+      heapTitleEl.textContent = '（未分配）';
+      stripEl.innerHTML = '<span class="seg-label">没有堆内存 —— ctrl 指向静态 EMPTY 表（16 × 0xFF），首次 insert 按 CapacityToBuckets(1) = 4 桶分配</span>';
+      return;
+    }
+    const buckets = state.ctrl.length;
+    stateEl.textContent = `buckets=${buckets} · items=${state.items} · growth_left=${state.growthLeft} · 容量上限=${maskToCapacity(state.mask)}`;
+    heapTitleEl.textContent = `buckets = ${buckets} · ctrl 区 ${buckets + GROUP} B · items = ${state.items} · growth_left = ${state.growthLeft}`;
+
+    const cellW = buckets <= 8 ? 34 : buckets <= 16 ? 28 : buckets <= 32 ? 22 : 17;
+    const cols = [];
+    for (let i = 0; i < buckets; i++) cols.push({ key: 'r' + i, kind: 'real', index: i });
+    if (buckets < GROUP) {
+      for (let i = buckets; i < GROUP; i++) cols.push({ key: 'p' + i, kind: 'pad' });
+      for (let i = 0; i < buckets; i++) cols.push({ key: 'm' + i, kind: 'mirror', index: i });
+    } else {
+      for (let i = 0; i < GROUP; i++) cols.push({ key: 'm' + i, kind: 'mirror', index: i });
+    }
+
+    const v = lastVisit;
+    let html = '<div class="seg-bracket"><span class="seg-label">真实 ctrl 与对应桶（同列）</span>';
+    if (buckets < GROUP) html += `<span class="seg-label">填充 ×${GROUP - buckets}（恒 EMPTY）</span>`;
+    html += `<span class="seg-label">尾部镜像 ×${Math.min(GROUP, buckets)}</span></div>`;
+    html += `<div class="hash-strip" role="img">`;
+    for (const col of cols) {
+      let byte;
+      const cls = ['hc-c'];
+      let label = '';
+      let bucketHtml = '';
+      if (col.kind === 'pad') {
+        byte = EMPTY;
+        cls.push('empty', 'pad');
+        label = '·';
+      } else {
+        byte = state.ctrl[col.index];
+        if (col.kind === 'mirror') {
+          label = 'm' + col.index;
+          cls.push('mirror');
+        } else {
+          label = String(col.index);
+        }
+        cls.push(byte === EMPTY ? 'empty' : byte === DELETED ? 'deleted' : 'full');
+        if (v && v.cols.has(col.key)) cls.push('probe');
+        if (col.kind === 'real') {
+          if (v && (v.hit === col.index || v.wrote === col.index)) cls.push('hot');
+          const e = state.buckets[col.index];
+          if (e) {
+            const bc = ['hc-b', 'used'];
+            if (v && (v.hit === col.index || v.wrote === col.index)) bc.push('hot');
+            else if (v && v.compared.includes(col.index)) bc.push('cmp');
+            bucketHtml = `<div class="${bc.join(' ')}">${esc(e.key)}:${esc(e.value)}</div>`;
+          } else {
+            const bc = ['hc-b', 'free'];
+            if (v && v.freed === col.index) bc.push('freed');
+            bucketHtml = `<div class="${bc.join(' ')}">${v && v.freed === col.index ? '已 Drop' : '—'}</div>`;
+          }
+        }
+      }
+      html += `<div class="hc" style="width:${cellW}px;min-width:${cellW}px"><div class="${cls.join(' ')}">${hexByte(byte)}</div>${bucketHtml}<div class="hc-l">${label}</div></div>`;
+    }
+    html += '</div>';
+    stripEl.innerHTML = html;
+  }
+
+  function renderLog() {
+    logEl.innerHTML = logBlocks.map(b =>
+      `<div class="log-op">${esc(b.title)}</div>` +
+      b.steps.map(s => `<div class="log-step ${s.c || ''}">${esc(s.t)}</div>`).join('')
+    ).join('');
+  }
+  function pushLog(r) {
+    logBlocks.unshift(r);
+    if (logBlocks.length > 24) logBlocks.pop();
+    renderLog();
+  }
+
+  function resetSim(quiet) {
+    state.allocated = false;
+    state.mask = 0;
+    state.ctrl = [];
+    state.buckets = [];
+    state.items = 0;
+    state.growthLeft = 0;
+    lastVisit = null;
+    if (!quiet) {
+      logBlocks.length = 0;
+      renderLog();
+    }
+    render();
+    if (!quiet) messageEl.textContent = '已重置为 HashMap::new()：无堆分配。';
+  }
+
+  function runOp(op) {
+    try {
+      if (op === 'reset') {
+        resetSim(false);
+        return;
+      }
+      if (op === 'demo') {
+        resetSim(true);
+        const steps = [];
+        const visit = newVisit();
+        for (const [k, val] of [['ip', '1'], ['42', '2'], ['key', '3'], ['z', '4']]) {
+          const r = opInsert(k, val);
+          steps.push(...r.steps);
+          visit.cols = new Set([...visit.cols, ...r.visit.cols]);
+          visit.compared.push(...r.visit.compared);
+          if (r.visit.hit !== null) visit.hit = r.visit.hit;
+          if (r.visit.wrote !== null) visit.wrote = r.visit.wrote;
+          if (r.visit.resized) visit.resized = true;
+        }
+        lastVisit = visit;
+        pushLog({ title: '演示序列：insert ip → 42 → key → z（第 4 次触发 4→8 扩容）', steps, visit });
+        render();
+        messageEl.textContent = '已重现扩容：第 4 次 insert 时 growth_left=0 → reserve(1) → 4→8 桶全量 rehash。';
+        return;
+      }
+      const key = keyEl.value.trim();
+      if (!key) {
+        messageEl.textContent = '请输入 key。';
+        keyEl.focus();
+        return;
+      }
+      let r;
+      if (op === 'insert') r = opInsert(key, valEl.value);
+      else if (op === 'get') r = opGet(key);
+      else if (op === 'remove') r = opRemove(key);
+      else return;
+      lastVisit = r.visit;
+      pushLog(r);
+      render();
+      messageEl.textContent = r.title + ' 完成，见下方逐步日志。';
+    } catch (err) {
+      messageEl.textContent = '出错了：' + err.message;
+    }
+  }
+
+  document.querySelector('.controls').addEventListener('click', e => {
+    const btn = e.target.closest('button[data-op]');
+    if (btn) runOp(btn.dataset.op);
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>
