@@ -218,6 +218,7 @@ pub(crate) fn equivalent_key<Q, K, V>(k: &Q) -> impl Fn(&(K, V)) -> bool + '_
 where
     Q: Equivalent<K> + ?Sized,
 {
+    // 这里 x 就是 bucket(桶) 包含 键值对，这里就取 Key
     move |x| k.equivalent(&x.0)
 }
 
@@ -1807,6 +1808,9 @@ where
         // 生成 64 位 hash
         let hash = make_hash(&self.hash_builder, &k);
         // 生成一个和 k 对比的闭包
+        // 为什么可以，因为 equivalent 实现了如下  blanket impl
+        // impl<Q: ?Sized + Eq, K: ?Sized + Borrow<Q>> Equivalent<K> for Q {
+        // 实际上这里就是调用 PartialEq::eq
         let equivalent = equivalent_key(&k);
         // 生成一个 key -> hash 的闭包
         let hasher = make_hasher(&self.hash_builder);

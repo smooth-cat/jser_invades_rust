@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashSet, LinkedList, VecDeque};
+use std::{collections::{BTreeSet, HashSet, LinkedList, VecDeque}, hash::Hash};
 
 use hashbrown::HashMap;
 
@@ -90,6 +90,13 @@ fn main() {
   };
 
   /*----------------- Map -----------------*/
+  #[derive(PartialEq, Eq)]
+  struct Key(char);
+  impl Hash for Key {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+      self.0.hash(state);
+    }
+  }
   // HashMap 的 key 需要实现 Hash，Eq、PartialEq Trait。 value 不需要
   let mut hash_map = HashMap::<char, i32>::new();
   hash_map.insert('a', 7);

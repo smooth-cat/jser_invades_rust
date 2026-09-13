@@ -107,7 +107,21 @@ impl Group {
         // This algorithm is derived from
         // https://graphics.stanford.edu/~seander/bithacks.html##ValueInWord
         let cmp = self.0 ^ repeat(tag);
-        BitMask((cmp.wrapping_sub(repeat(Tag(0x01))) & !cmp & repeat(Tag::DELETED)).to_le())
+        /*
+          这是 hasZero 只能判断是否有 0 字节，不能准确分别 0 字节
+          以 2 字节来看这个算法
+          cmp - 0x01_01 & !cmp & 0x80_80
+          cmp = 0x01_00
+          减法要达到的效果是 00 字节最高位 一定是 1,
+          (0x01_00 - 0x01_01) & 0xFEFF & 0x80_80
+          下面括号部分计算完成高字节最高位依然是 1
+          (0xFFFF & 0xFEFF) & 0x8080
+          0xFEFF & 0x8080
+          最终结果包含至少一个最高位 为 1 的字节，说明具有 0 字节
+          0x8080
+        */
+        let res = (cmp.wrapping_sub(repeat(Tag(0x01))) & !cmp & repeat(Tag::DELETED)).to_le();
+        BitMask(res)
     }
 
     /// Returns a `BitMask` indicating all tags in the group which are

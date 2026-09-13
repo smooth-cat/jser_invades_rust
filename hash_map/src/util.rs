@@ -20,6 +20,7 @@ pub(crate) fn likely(b: bool) -> bool {
 
 #[cfg(not(feature = "nightly"))]
 #[inline(always)]
+// 通过 cold_path 提升分支预测性能，在扩容场景中表示 扩容的场景比较少见
 pub(crate) fn unlikely(b: bool) -> bool {
     if b {
         cold_path();

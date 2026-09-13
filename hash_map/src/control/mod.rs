@@ -1,4 +1,4 @@
-mod bitmask;
+pub mod bitmask;
 mod group;
 mod tag;
 

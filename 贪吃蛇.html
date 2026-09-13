@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>贪吃蛇</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: #578a34;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 14px;
+    font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+    user-select: none; -webkit-user-select: none;
+  }
+  #wrap { position: relative; }
+  canvas {
+    display: block;
+    width: min(92vw, 680px);
+    height: auto;
+    border-radius: 4px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, .3);
+    cursor: pointer;
+  }
+  .badge {
+    position: absolute; top: 12px;
+    background: rgba(0, 0, 0, .4);
+    color: #fff; font-size: 14px; line-height: 1;
+    padding: 8px 14px; border-radius: 999px;
+    pointer-events: none; display: none;
+  }
+  #score { left: 12px; display: block; }
+  #hint { right: 12px; }
+  #over {
+    position: absolute; inset: 0; display: none;
+    flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+    background: rgba(0, 0, 0, .55); color: #fff; text-align: center;
+    border-radius: 4px;
+  }
+  #over h1 { margin: 0; font-size: 40px; letter-spacing: 2px; }
+  #over p { margin: 0; opacity: .85; font-size: 15px; }
+  #help { color: rgba(255, 255, 255, .8); font-size: 13px; text-align: center; padding: 0 12px; }
+  kbd {
+    background: rgba(255, 255, 255, .16); border-radius: 4px;
+    padding: 2px 6px; font-size: 12px; font-family: inherit;
+  }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="game"></canvas>
+  <div class="badge" id="score">得分 0</div>
+  <div class="badge" id="hint"></div>
+  <div id="over">
+    <h1 id="overTitle">游戏结束</h1>
+    <p id="final"></p>
+    <p>按 空格 或点击画面重新开始</p>
+  </div>
+</div>
+<div id="help">
+  <kbd>↑↓←→</kbd>/<kbd>WASD</kbd> 移动 · <kbd>空格</kbd> 暂停/继续 · <kbd>G</kbd> 伸长一格 · <kbd>H</kbd> 缩短一格 · 穿过边界从另一端出现 · 点击画面也可暂停
+</div>
+<script>
+'use strict';
+
+const COLS = 17, ROWS = 15, CELL = 40;
+const SPEED_START = 150, SPEED_MIN = 80;
+const C = {
+  boardA: '#aad751', boardB: '#a2d149',
+  snake: '#4a63e7', pupil: '#1d2d7c', nostril: 'rgba(20,30,90,.5)',
+  apple: '#ee3b30', stem: '#7a4a21', leaf: '#59b540',
+};
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const dpr = Math.min(window.devicePixelRatio || 1, 2);
+canvas.width = COLS * CELL * dpr;
+canvas.height = ROWS * CELL * dpr;
+ctx.scale(dpr, dpr);
+const W = COLS * CELL, H = ROWS * CELL;
+
+const scoreEl = document.getElementById('score');
+const hintEl = document.getElementById('hint');
+const overEl = document.getElementById('over');
+const overTitleEl = document.getElementById('overTitle');
+const finalEl = document.getElementById('final');
+
+let state, snake, prevSnake, dir, dirQueue, apple, score, stepMs, acc, lastTime, flashTimer;
+
+function reset() {
+  const cy = Math.floor(ROWS / 2);
+  snake = [{ x: 5, y: cy }, { x: 6, y: cy }, { x: 7, y: cy }];
+  prevSnake = snake.map(c => ({ ...c }));
+  dir = { x: -1, y: 0 };
+  dirQueue = [];
+  score = 0;
+  stepMs = SPEED_START;
+  acc = 0;
+  state = 'ready';
+  apple = spawnApple();
+  scoreEl.textContent = '得分 0';
+  overEl.style.display = 'none';
+  updateHint();
+}
+
+function spawnApple() {
+  const free = [];
+  for (let x = 0; x < COLS; x++)
+    for (let y = 0; y < ROWS; y++)
+      if (!snake.some(s => s.x === x && s.y === y)) free.push({ x, y });
+  return free.length ? free[(Math.random() * free.length) | 0] : null;
+}
+
+function step() {
+  while (dirQueue.length) {
+    const d = dirQueue.shift();
+    if ((d.x !== -dir.x || d.y !== -dir.y) && (d.x !== dir.x || d.y !== dir.y)) { dir = d; break; }
+  }
+  const head = snake[0];
+  const nx = (head.x + dir.x + COLS) % COLS;
+  const ny = (head.y + dir.y + ROWS) % ROWS;
+  const eating = apple && nx === apple.x && ny === apple.y;
+  const checkLen = eating ? snake.length : snake.length - 1;
+  for (let i = 0; i < checkLen; i++) {
+    if (snake[i].x === nx && snake[i].y === ny) return gameOver(false);
+  }
+  prevSnake = snake.map(c => ({ ...c }));
+  snake.unshift({ x: nx, y: ny });
+  if (eating) {
+    score++;
+    scoreEl.textContent = '得分 ' + score;
+    stepMs = Math.max(SPEED_MIN, stepMs - 2);
+    apple = spawnApple();
+    if (!apple) return gameOver(true);
+  } else {
+    snake.pop();
+  }
+}
+
+function gameOver(win) {
+  state = 'over';
+  acc = 0;
+  prevSnake = snake.map(c => ({ ...c }));
+  overTitleEl.textContent = win ? '胜利！' : '游戏结束';
+  finalEl.textContent = (win ? '吃满了整个棋盘！' : '') + '得分 ' + score + ' · 长度 ' + snake.length;
+  overEl.style.display = 'flex';
+  hintEl.style.display = 'none';
+}
+
+function growCheat() {
+  if (state !== 'ready' && state !== 'running' && state !== 'paused') return;
+  const tail = snake[snake.length - 1];
+  snake.push({ x: tail.x, y: tail.y });
+  prevSnake.push({ x: tail.x, y: tail.y });
+  flashHint('作弊成功 · 长度 +1');
+}
+
+function shrinkCheat() {
+  if (state !== 'ready' && state !== 'running' && state !== 'paused') return;
+  if (snake.length <= 2) { flashHint('已经最短啦'); return; }
+  snake.pop();
+  prevSnake.pop();
+  flashHint('长度 -1');
+}
+
+function start() { state = 'running'; acc = 0; updateHint(); }
+function pause() { state = 'paused'; updateHint(); }
+function resume() { state = 'running'; updateHint(); }
+
+function updateHint() {
+  if (state === 'paused') { hintEl.textContent = '已暂停 · 空格继续'; hintEl.style.display = 'block'; }
+  else if (state === 'ready') { hintEl.textContent = '按方向键开始'; hintEl.style.display = 'block'; }
+  else hintEl.style.display = 'none';
+}
+
+function flashHint(msg) {
+  hintEl.textContent = msg;
+  hintEl.style.display = 'block';
+  clearTimeout(flashTimer);
+  flashTimer = setTimeout(updateHint, 800);
+}
+
+function wrapDelta(v, n) {
+  if (v > n / 2) return v - n;
+  if (v < -n / 2) return v + n;
+  return v;
+}
+
+function snakePoints(t) {
+  const pts = [];
+  const headFrom = prevSnake[0] || snake[0];
+  const head = {
+    x: headFrom.x + wrapDelta(snake[0].x - headFrom.x, COLS) * t,
+    y: headFrom.y + wrapDelta(snake[0].y - headFrom.y, ROWS) * t,
+  };
+  pts.push(head);
+  let ref = head;
+  for (let i = 1; i < snake.length - 1; i++) {
+    const p = {
+      x: ref.x + wrapDelta(snake[i].x - ref.x, COLS),
+      y: ref.y + wrapDelta(snake[i].y - ref.y, ROWS),
+    };
+    pts.push(p);
+    ref = p;
+  }
+  const last = snake[snake.length - 1];
+  if (prevSnake.length === snake.length) {
+    const tf = prevSnake[prevSnake.length - 1];
+    pts.push({
+      x: ref.x + wrapDelta(tf.x - ref.x, COLS) + wrapDelta(last.x - tf.x, COLS) * t,
+      y: ref.y + wrapDelta(tf.y - ref.y, ROWS) + wrapDelta(last.y - tf.y, ROWS) * t,
+    });
+  } else {
+    pts.push({
+      x: ref.x + wrapDelta(last.x - ref.x, COLS),
+      y: ref.y + wrapDelta(last.y - ref.y, ROWS),
+    });
+  }
+  return pts;
+}
+
+function draw(t) {
+  ctx.clearRect(0, 0, W, H);
+  for (let y = 0; y < ROWS; y++)
+    for (let x = 0; x < COLS; x++) {
+      ctx.fillStyle = (x + y) % 2 ? C.boardB : C.boardA;
+      ctx.fillRect(x * CELL, y * CELL, CELL, CELL);
+    }
+  if (apple) drawApple(apple.x, apple.y);
+  drawSnake(snakePoints(t));
+}
+
+function drawApple(gx, gy) {
+  const cx = gx * CELL + CELL / 2;
+  const cy = gy * CELL + CELL / 2;
+  const r = CELL * 0.36;
+
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,.28)';
+  ctx.shadowBlur = 4;
+  ctx.shadowOffsetY = 4;
+  ctx.fillStyle = C.apple;
+  ctx.beginPath();
+  ctx.arc(cx, cy + 1, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  ctx.fillStyle = 'rgba(255,255,255,.3)';
+  ctx.beginPath();
+  ctx.arc(cx - r * 0.35, cy - r * 0.35, r * 0.24, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = C.stem;
+  ctx.lineWidth = CELL * 0.07;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - r + 3);
+  ctx.quadraticCurveTo(cx + 2, cy - r - 4, cx + 6, cy - r - 6);
+  ctx.stroke();
+
+  ctx.save();
+  ctx.translate(cx + 9, cy - r - 4);
+  ctx.rotate(-0.5);
+  ctx.fillStyle = C.leaf;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, CELL * 0.14, CELL * 0.065, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawSnake(pts) {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const p of pts) {
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+  }
+  const xs = [0];
+  if (minX < 0) xs.push(COLS);
+  if (maxX > COLS) xs.push(-COLS);
+  const ys = [0];
+  if (minY < 0) ys.push(ROWS);
+  if (maxY > ROWS) ys.push(-ROWS);
+  for (const ox of xs)
+    for (const oy of ys)
+      drawSnakeBody(pts, ox * CELL, oy * CELL);
+}
+
+function drawSnakeBody(pts, ox, oy) {
+  const px = i => pts[i].x * CELL + CELL / 2 + ox;
+  const py = i => pts[i].y * CELL + CELL / 2 + oy;
+  const w = CELL * 0.78;
+
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,.25)';
+  ctx.shadowBlur = 5;
+  ctx.shadowOffsetY = 4;
+  ctx.strokeStyle = C.snake;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = w;
+  ctx.beginPath();
+  ctx.moveTo(px(0), py(0));
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(px(i), py(i));
+  ctx.stroke();
+  ctx.fillStyle = C.snake;
+  ctx.beginPath();
+  ctx.arc(px(0), py(0), w * 0.56, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  let dx = dir.x, dy = dir.y;
+  if (pts.length > 1) {
+    const vx = pts[0].x - pts[1].x, vy = pts[0].y - pts[1].y;
+    const m = Math.hypot(vx, vy);
+    if (m > 0.01) { dx = vx / m; dy = vy / m; }
+  }
+  const sx = -dy, sy = dx;
+
+  for (const s of [-1, 1]) {
+    const ex = px(0) + dx * CELL * 0.10 + sx * s * CELL * 0.20;
+    const ey = py(0) + dy * CELL * 0.10 + sy * s * CELL * 0.20;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(ex, ey, CELL * 0.17, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = C.pupil;
+    ctx.beginPath(); ctx.arc(ex + dx * CELL * 0.05, ey + dy * CELL * 0.05, CELL * 0.085, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.fillStyle = C.nostril;
+  for (const s of [-1, 1]) {
+    ctx.beginPath();
+    ctx.arc(px(0) + dx * CELL * 0.34 + sx * s * CELL * 0.09,
+            py(0) + dy * CELL * 0.34 + sy * s * CELL * 0.09,
+            CELL * 0.035, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function loop(now) {
+  requestAnimationFrame(loop);
+  if (lastTime === undefined) lastTime = now;
+  const dt = Math.min(now - lastTime, 100);
+  lastTime = now;
+  if (state === 'running') {
+    acc += dt;
+    while (acc >= stepMs && state === 'running') {
+      acc -= stepMs;
+      step();
+    }
+  }
+  const t = (state === 'running' || state === 'paused') ? acc / stepMs : 0;
+  draw(t);
+}
+
+const DIRS = {
+  arrowup: { x: 0, y: -1 }, arrowdown: { x: 0, y: 1 },
+  arrowleft: { x: -1, y: 0 }, arrowright: { x: 1, y: 0 },
+  w: { x: 0, y: -1 }, s: { x: 0, y: 1 }, a: { x: -1, y: 0 }, d: { x: 1, y: 0 },
+};
+
+window.addEventListener('keydown', e => {
+  const key = e.key.toLowerCase();
+  const d = DIRS[key];
+  if (d) {
+    e.preventDefault();
+    if (state === 'ready') start();
+    if (state === 'running') {
+      const last = dirQueue.length ? dirQueue[dirQueue.length - 1] : dir;
+      if ((d.x !== last.x || d.y !== last.y) && dirQueue.length < 3) dirQueue.push(d);
+    }
+    return;
+  }
+  if (e.repeat) return;
+  if (key === ' ' || key === 'p') {
+    e.preventDefault();
+    if (state === 'ready') start();
+    else if (state === 'running') pause();
+    else if (state === 'paused') resume();
+    else if (state === 'over') reset();
+  } else if (key === 'g' || key === '+' || key === '=') {
+    growCheat();
+  } else if (key === 'h') {
+    shrinkCheat();
+  }
+});
+
+canvas.addEventListener('click', () => {
+  if (state === 'ready') start();
+  else if (state === 'running') pause();
+  else if (state === 'paused') resume();
+  else if (state === 'over') reset();
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && state === 'running') pause();
+});
+
+reset();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

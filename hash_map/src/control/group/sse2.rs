@@ -68,6 +68,18 @@ impl Group {
 
     /// Returns a `BitMask` indicating all tags in the group which have
     /// the given value.
+    /*
+      1. #[expect(...)]：抑制 clippy 关于 as i8、as u16 可能截断/符号变化的警告。
+      2. unsafe { ... }：调用 x86 SIMD intrinsics，需要 unsafe。
+      3. x86::_mm_set1_epi8(tag.0 as i8)：把 tag.0 强转为 i8，再广播成 16 个相同字节的 __m128i。
+      4. x86::_mm_cmpeq_epi8(self.0, 广播值)：将 self.0 的 16 个字节与广播值逐字节比较相等。
+      5. 相等：该字节变成 0xFF
+      6. 不相等：该字节变成 0x00
+      7. x86::_mm_movemask_epi8(cmp)：取 cmp 中 16 个字节的最高位，组合成一个 16 位掩码，返回 i32（高 16 位为 0）。
+      8. as u16：把 i32 截断为 u16，得到 16 位掩码。
+      9. BitMask(...)：将 16 位掩码包装成 BitMask。
+      10. 最终结果：返回的 BitMask 中，第 i 位为 1 表示 self.0 的第 i 个字节等于 tag；为 0 表示不等。
+     */
     #[inline]
     pub(crate) fn match_tag(self, tag: Tag) -> BitMask {
         #[expect(

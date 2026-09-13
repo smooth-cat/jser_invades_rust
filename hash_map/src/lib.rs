@@ -50,7 +50,7 @@ pub struct ReadmeDoctests;
 mod macros;
 
 mod alloc;
-mod control;
+pub mod control;
 mod hasher;
 mod raw;
 mod util;
@@ -64,7 +64,6 @@ mod rustc_entry;
 mod scopeguard;
 mod set;
 mod table;
-
 pub use crate::hasher::DefaultHashBuilder;
 #[cfg(feature = "default-hasher")]
 pub use crate::hasher::DefaultHasher;

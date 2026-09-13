@@ -17,7 +17,7 @@ use super::group::{BITMASK_ITER_MASK, BITMASK_STRIDE, BitMaskWord, NonZeroBitMas
 /// is set per element. This is done by applying `BITMASK_ITER_MASK` on the
 /// mask bits.
 #[derive(Copy, Clone)]
-pub(crate) struct BitMask(pub(crate) BitMaskWord);
+pub struct BitMask(pub BitMaskWord);
 
 #[expect(clippy::use_self)]
 impl BitMask {
@@ -86,6 +86,7 @@ impl IntoIterator for BitMask {
     fn into_iter(self) -> BitMaskIter {
         // A BitMask only requires each element (group of bits) to be non-zero.
         // However for iteration we need each element to only contain 1 bit.
+        // BITMASK_ITER_MASK 在 mac m1 上是 0x80_80...
         BitMaskIter(BitMask(self.0 & BITMASK_ITER_MASK))
     }
 }
@@ -93,7 +94,7 @@ impl IntoIterator for BitMask {
 /// Iterator over the contents of a `BitMask`, returning the indices of set
 /// bits.
 #[derive(Clone)]
-pub(crate) struct BitMaskIter(pub(crate) BitMask);
+pub struct BitMaskIter(pub(crate) BitMask);
 
 impl Iterator for BitMaskIter {
     type Item = usize;
