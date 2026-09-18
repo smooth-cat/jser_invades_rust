@@ -187,7 +187,9 @@
 
       <div class="seg bss">
         <div><span class="name">未初始化数据段</span><span class="en">.bss</span></div>
-        <div class="desc">初值为 0 或未初始化的全局/静态数据。二进制里不存实际内容，只记录大小，加载时清零，省空间。</div>
+        <div class="desc">初值为 0 或未初始化的全局/静态数据。二进制里不存实际内容，只记录大小，加载时清零，省空间。<br/>
+          <b>记录为0的.bss 段有多大，操作系统加载器不需要从磁盘上加载一堆 0 来初始化</b>
+        </div>
         <div class="tags">
           <span class="tag">static mut 未初始化</span>
           <span class="tag">零初始化的全局数组</span>

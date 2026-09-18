@@ -3725,7 +3725,12 @@ impl RawTableInner {
         //
         // 注意，在此上下文中 `leading_zeros` 指的是组末尾的字节，而 `trailing_zeros`
         // 指的是组开头的字节。
+
         // 根据前后空位分布决定新控制字节：连续满则留墓碑，否则标记为 EMPTY 并回收增长空间。
+        // leading_zeros 指高位出现的 0 个数, trailing_zeros 指低位出现的 0 个数
+        // 注意 empty_before 和 empty_after 中的 0x00 表示的是非 空字节
+        // 这里表示 index 位置前后连续非空字节超过 8。
+        // 或者说 index 处于8个连续非空字节中，此时就必须使用 DELETED，这是为了遍历时不漏组
         let ctrl = if empty_before.leading_zeros() + empty_after.trailing_zeros() >= Group::WIDTH {
             // 前后都连续，标记为 DELETED（墓碑）。
             Tag::DELETED

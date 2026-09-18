@@ -9,7 +9,6 @@
 //! [here]: https://github.com/abseil/abseil-cpp/blob/master/absl/container/internal/raw_hash_set.h
 //! [CppCon talk]: https://www.youtube.com/watch?v=ncHmEUmJZf4
 
-#![cfg_attr(not(doc), no_std)]
 #![cfg_attr(
     feature = "nightly",
     feature(
@@ -64,6 +63,9 @@ mod rustc_entry;
 mod scopeguard;
 mod set;
 mod table;
+
+// [学习用] 堆内存可视化模块，提供 HashMap::debug_dump。
+mod debug_dump;
 pub use crate::hasher::DefaultHashBuilder;
 #[cfg(feature = "default-hasher")]
 pub use crate::hasher::DefaultHasher;

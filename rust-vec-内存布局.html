@@ -318,7 +318,7 @@ hr { border: none; border-top: 1px solid #21262d; margin: 40px 0; }
           </div>
           <div class="stack-row">
             <div class="stack-cell field">cap</div>
-            <div class="stack-cell value">4</div>
+            <div class="stack-cell value">3</div>
             <div class="stack-cell type">usize</div>
             <div class="stack-cell size">8 B</div>
           </div>
@@ -340,19 +340,18 @@ hr { border: none; border-top: 1px solid #21262d; margin: 40px 0; }
       <div class="zone-heap">
         <div class="zone-label">堆 (Heap) — 由 GlobalAlloc 分配</div>
         <div class="heap-block">
-          <div class="heap-title">0x7f3a_0040 起 · cap = 4 个 i32 = 16 B</div>
+          <div class="heap-title">0x7f3a_0040 起 · cap = 3 个 i32 = 12 B</div>
           <div class="heap-slots">
             <div class="heap-slot used"><span class="idx">[0]</span>10</div>
             <div class="heap-slot used"><span class="idx">[1]</span>20</div>
             <div class="heap-slot used"><span class="idx">[2]</span>30</div>
-            <div class="heap-slot free"><span class="idx">[3]</span>—</div>
           </div>
         </div>
         <div class="cap-annotation">
           <span class="len-bracket">◀── len = 3 ──▶</span>&nbsp;
-          <span class="cap-bracket">◀──── cap = 4 ────▶</span>
+          <span class="cap-bracket">◀── cap = 3 ──▶</span>
         </div>
-        <p class="note">分配策略: 首次 vec![] 精确分配; push 扩容时倍增 (4→8→16…)</p>
+        <p class="note">分配策略: 首次 vec![] 精确分配 (cap=len=3); push 扩容时倍增 (3→6→12…)</p>
       </div>
     </div>
 
@@ -494,44 +493,43 @@ hr { border: none; border-top: 1px solid #21262d; margin: 40px 0; }
 
 <table class="compare-table">
   <tr><th>初始化方式</th><th>初始 cap</th><th>首次 push 是否 alloc</th><th>适用场景</th></tr>
-  <tr><td><code>Vec::new()</code></td><td>0</td><td>是 (cap 0→1)</td><td>不确定大小，延迟分配</td></tr>
-  <tr><td><code>vec![a, b, c]</code></td><td>元素个数</td><td>是 (cap==len 时)</td><td>编译期已知少量元素</td></tr>
+  <tr><td><code>Vec::new()</code></td><td>0</td><td>是 (cap 0→4, i32)</td><td>不确定大小，延迟分配</td></tr>
+  <tr><td><code>vec![a, b, c]</code></td><td>元素个数 (cap==len)</td><td>是 (触发 realloc 3→6)</td><td>编译期已知少量元素</td></tr>
   <tr><td><code>vec![0; n]</code></td><td>n</td><td>—（已满）</td><td>需要 n 个相同初始值</td></tr>
   <tr><td><code>with_capacity(n)</code></td><td>n</td><td>否 (前 n 次)</td><td>预知大致大小，减少 realloc</td></tr>
   <tr><td><code>collect()</code> (精确迭代器)</td><td>exact len</td><td>否</td><td>Range、slice 等</td></tr>
   <tr><td><code>collect()</code> (filter 等)</td><td>0</td><td>是</td><td>无法预知输出长度</td></tr>
 </table>
 
-<p class="note">💡 性能建议: 如果你知道大致元素数量（比如从文件读 10000 行），用 <code>Vec::with_capacity(10000)</code> 可避免约 14 次 realloc（log₂(10000) ≈ 13.3）。每次 realloc 都是一次 memcpy + alloc + dealloc。</p>
+<p class="note">💡 性能建议: 如果你知道大致元素数量（比如从文件读 10000 行），用 <code>Vec::with_capacity(10000)</code> 可避免约 12 次 realloc（i32 起步 cap=4，4→8→…→16384 共 12 次）。每次 realloc 都是一次 memcpy + alloc + dealloc。</p>
 
 <h3>扩容增长曲线</h3>
 <div class="memory-scene">
   <p style="font-size:0.8rem; color:#8b949e; margin-bottom:12px;">从 Vec::new() 开始连续 push，cap 的变化轨迹：</p>
   <div class="zone-heap">
     <div class="heap-block">
-      <div class="heap-title">cap 增长: 0 → 1 → 2 → 4 → 8 → 16 → 32 → 64 …</div>
+      <div class="heap-title">cap 增长 (i32): 0 → 4 → 8 → 16 → 32 → 64 …</div>
       <div class="heap-slots">
-        <div class="heap-slot free" style="min-width:36px"><span class="idx">push#1</span>1</div>
-        <div class="heap-slot free" style="min-width:36px"><span class="idx">push#2</span>2</div>
-        <div class="heap-slot used" style="min-width:36px"><span class="idx">push#3</span>4</div>
+        <div class="heap-slot used" style="min-width:36px"><span class="idx">push#1</span>4</div>
         <div class="heap-slot used" style="min-width:36px"><span class="idx">push#5</span>8</div>
         <div class="heap-slot used" style="min-width:36px"><span class="idx">push#9</span>16</div>
         <div class="heap-slot used" style="min-width:36px"><span class="idx">push#17</span>32</div>
         <div class="heap-slot used" style="min-width:36px"><span class="idx">push#33</span>64</div>
       </div>
     </div>
-    <div class="cap-annotation">数字 = 该次 push 后的新 cap · 触发扩容的 push 编号标注在上方</div>
+    <div class="cap-annotation">数字 = 该次 push 后的新 cap · 触发扩容的 push 编号标注在上方 · i32 首次分配即 4 (min_non_zero_cap)</div>
   </div>
   <pre class="code-block"><code><span class="cm">// 标准库源码 (alloc/src/raw_vec.rs, 简化):</span>
 <span class="kw">fn</span> <span class="fn">grow_amortized</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, len: <span class="ty">usize</span>, additional: <span class="ty">usize</span>) {
-    <span class="cm">// 新容量 = max(cap * 2, len + additional, 1)</span>
-    <span class="kw">let</span> new_cap = <span class="kw">if</span> <span class="kw">self</span>.cap == <span class="num">0</span> {
-        <span class="fn">max</span>(<span class="num">1</span>, len + additional)       <span class="cm">// 首次: 至少 1</span>
-    } <span class="kw">else</span> {
-        <span class="fn">max</span>(<span class="kw">self</span>.cap * <span class="num">2</span>, len + additional) <span class="cm">// 倍增，但不低于所需</span>
-    };
+    <span class="cm">// 新容量 = max(cap * 2, len + additional, min_non_zero_cap)</span>
+    <span class="kw">let</span> new_cap = <span class="fn">max</span>(
+        <span class="fn">max</span>(<span class="kw">self</span>.cap * <span class="num">2</span>, len + additional), <span class="cm">// 倍增，但不低于所需</span>
+        <span class="fn">min_non_zero_cap</span>(size_of::&lt;<span class="ty">T</span>&gt;()),
+    );
     <span class="cm">// 然后 realloc 到 new_cap * size_of::&lt;T&gt;() 字节</span>
 }
+<span class="cm">// min_non_zero_cap: 1B 类型 = 8 (u8/bool), ≤1024B = 4 (i32/f64/String), &gt;1024B = 1</span>
+<span class="cm">// 所以 i32 从 Vec::new() 开始 push: cap 为 0 → 4 → 8 → 16 …</span>
 <span class="cm">// 注意: 对于 T 为 ZST (如 Vec&lt;()&gt;)，永远不 alloc，cap = usize::MAX</span></code></pre>
 </div>
 
@@ -541,53 +539,19 @@ hr { border: none; border-top: 1px solid #21262d; margin: 40px 0; }
 <h2>三、增 (Push / Insert)</h2>
 
 <h3>3.1 push — 尾部追加</h3>
-<p>当 <code>len &lt; cap</code> 时，直接写入 <code>ptr[len]</code>，然后 <code>len += 1</code>。无需重新分配。</p>
+<p>push 先检查 <code>len == cap</code>：若已满必须先扩容（realloc），有空位才直接写入 <code>ptr[len]</code>。下面从 <code>vec![10, 20, 30]</code> 开始，len==cap==3，首次 push 即触发扩容。策略：新容量 = <code>cap * 2</code>。</p>
 
 <div class="memory-scene">
-  <p style="color:#7ee787; font-size:0.8rem; margin-bottom:8px;">v.push(40) — len=3, cap=4, 有空位，直接写</p>
-  <div class="zone-heap">
-    <div class="heap-block">
-      <div class="heap-title">push 前: len=3, cap=4</div>
-      <div class="heap-slots">
-        <div class="heap-slot used"><span class="idx">[0]</span>10</div>
-        <div class="heap-slot used"><span class="idx">[1]</span>20</div>
-        <div class="heap-slot used"><span class="idx">[2]</span>30</div>
-        <div class="heap-slot free"><span class="idx">[3]</span>—</div>
-      </div>
-    </div>
-    <div class="arrow" style="margin:8px 0;">push(40)</div>
-    <div class="heap-block">
-      <div class="heap-title">push 后: len=4, cap=4</div>
-      <div class="heap-slots">
-        <div class="heap-slot used"><span class="idx">[0]</span>10</div>
-        <div class="heap-slot used"><span class="idx">[1]</span>20</div>
-        <div class="heap-slot used"><span class="idx">[2]</span>30</div>
-        <div class="heap-slot highlight-new"><span class="idx">[3]</span>40</div>
-      </div>
-    </div>
-  </div>
-  <div class="steps">
-    <div class="step"><div class="step-num">1</div><div class="step-text">检查 <code>len &lt; cap</code> → 3 &lt; 4 ✓ 无需扩容</div></div>
-    <div class="step"><div class="step-num">2</div><div class="step-text"><code>ptr::write(ptr.add(3), 40)</code> — 在偏移 3 处写入（不触发 Drop）</div></div>
-    <div class="step"><div class="step-num">3</div><div class="step-text"><code>self.len += 1</code> → len = 4</div></div>
-  </div>
-</div>
-
-<h3>3.2 push 触发扩容 (realloc)</h3>
-<p>当 <code>len == cap</code> 时，必须扩容。策略：新容量 = <code>cap * 2</code>（至少为 1）。</p>
-
-<div class="memory-scene">
-  <p style="color:#f85149; font-size:0.8rem; margin-bottom:8px;">v.push(50) — len=4, cap=4, 满了！触发 realloc</p>
+  <p style="color:#f85149; font-size:0.8rem; margin-bottom:8px;">v.push(40) — len=3, cap=3, 满了！触发 realloc</p>
   <div class="zone-heap">
     <div class="flex-row">
       <div class="flex-col">
         <div class="heap-block">
-          <div class="heap-title">旧堆块 0x7f3a_0040 (cap=4)</div>
+          <div class="heap-title">旧堆块 0x7f3a_0040 (cap=3)</div>
           <div class="heap-slots">
             <div class="heap-slot used"><span class="idx">[0]</span>10</div>
             <div class="heap-slot used"><span class="idx">[1]</span>20</div>
             <div class="heap-slot used"><span class="idx">[2]</span>30</div>
-            <div class="heap-slot used"><span class="idx">[3]</span>40</div>
           </div>
         </div>
         <div class="cap-annotation">即将被 dealloc 释放</div>
@@ -595,16 +559,14 @@ hr { border: none; border-top: 1px solid #21262d; margin: 40px 0; }
       <div style="align-self:center; color:#58a6ff; font-size:1.2rem;">──▶</div>
       <div class="flex-col">
         <div class="heap-block">
-          <div class="heap-title">新堆块 0x7f3a_0080 (cap=8)</div>
+          <div class="heap-title">新堆块 0x7f3a_0080 (cap=6)</div>
           <div class="heap-slots">
             <div class="heap-slot used"><span class="idx">[0]</span>10</div>
             <div class="heap-slot used"><span class="idx">[1]</span>20</div>
             <div class="heap-slot used"><span class="idx">[2]</span>30</div>
-            <div class="heap-slot used"><span class="idx">[3]</span>40</div>
-            <div class="heap-slot highlight-new"><span class="idx">[4]</span>50</div>
+            <div class="heap-slot highlight-new"><span class="idx">[3]</span>40</div>
+            <div class="heap-slot free"><span class="idx">[4]</span>—</div>
             <div class="heap-slot free"><span class="idx">[5]</span>—</div>
-            <div class="heap-slot free"><span class="idx">[6]</span>—</div>
-            <div class="heap-slot free"><span class="idx">[7]</span>—</div>
           </div>
         </div>
         <div class="cap-annotation">memcpy 旧数据 + 写入新元素</div>
@@ -612,15 +574,52 @@ hr { border: none; border-top: 1px solid #21262d; margin: 40px 0; }
     </div>
   </div>
   <div class="steps">
-    <div class="step"><div class="step-num">1</div><div class="step-text">检查 <code>len == cap</code> → 4 == 4 → 需要扩容</div></div>
-    <div class="step"><div class="step-num">2</div><div class="step-text">计算新容量: <code>new_cap = cap * 2 = 8</code></div></div>
-    <div class="step"><div class="step-num">3</div><div class="step-text"><code>alloc::realloc(old_ptr, old_layout, new_size=32B)</code> — 底层可能 mmap 新区域</div></div>
-    <div class="step"><div class="step-num">4</div><div class="step-text"><code>memcpy(new_ptr, old_ptr, len * size_of::&lt;i32&gt;())</code> — 拷贝 16 字节旧数据</div></div>
+    <div class="step"><div class="step-num">1</div><div class="step-text">检查 <code>len == cap</code> → 3 == 3 → 需要扩容</div></div>
+    <div class="step"><div class="step-num">2</div><div class="step-text">计算新容量: <code>new_cap = max(cap × 2, len + 1) = max(6, 4) = 6</code></div></div>
+    <div class="step"><div class="step-num">3</div><div class="step-text"><code>alloc::realloc(old_ptr, old_layout, new_size=24B)</code> — 底层可能 mmap 新区域</div></div>
+    <div class="step"><div class="step-num">4</div><div class="step-text"><code>memcpy(new_ptr, old_ptr, len * size_of::&lt;i32&gt;())</code> — 拷贝 12 字节旧数据</div></div>
     <div class="step"><div class="step-num">5</div><div class="step-text"><code>dealloc(old_ptr)</code> — 释放旧堆块（realloc 内部完成）</div></div>
-    <div class="step"><div class="step-num">6</div><div class="step-text">更新栈上 <code>ptr = new_ptr, cap = 8</code></div></div>
-    <div class="step"><div class="step-num">7</div><div class="step-text"><code>ptr::write(new_ptr.add(4), 50); self.len = 5</code></div></div>
+    <div class="step"><div class="step-num">6</div><div class="step-text">更新栈上 <code>ptr = new_ptr, cap = 6</code></div></div>
+    <div class="step"><div class="step-num">7</div><div class="step-text"><code>ptr::write(new_ptr.add(3), 40); self.len = 4</code></div></div>
   </div>
   <p class="note">⚠️ 扩容后所有旧引用/迭代器失效 — 这就是为什么 push 需要 &amp;mut self。</p>
+</div>
+
+<h3>3.2 push — 有空位时直接写入</h3>
+<p>当 <code>len &lt; cap</code> 时，直接写入 <code>ptr[len]</code>，然后 <code>len += 1</code>。无需重新分配。</p>
+
+<div class="memory-scene">
+  <p style="color:#7ee787; font-size:0.8rem; margin-bottom:8px;">v.push(50) — len=4, cap=6, 有空位，直接写</p>
+  <div class="zone-heap">
+    <div class="heap-block">
+      <div class="heap-title">push 前: len=4, cap=6</div>
+      <div class="heap-slots">
+        <div class="heap-slot used"><span class="idx">[0]</span>10</div>
+        <div class="heap-slot used"><span class="idx">[1]</span>20</div>
+        <div class="heap-slot used"><span class="idx">[2]</span>30</div>
+        <div class="heap-slot used"><span class="idx">[3]</span>40</div>
+        <div class="heap-slot free"><span class="idx">[4]</span>—</div>
+        <div class="heap-slot free"><span class="idx">[5]</span>—</div>
+      </div>
+    </div>
+    <div class="arrow" style="margin:8px 0;">push(50)</div>
+    <div class="heap-block">
+      <div class="heap-title">push 后: len=5, cap=6</div>
+      <div class="heap-slots">
+        <div class="heap-slot used"><span class="idx">[0]</span>10</div>
+        <div class="heap-slot used"><span class="idx">[1]</span>20</div>
+        <div class="heap-slot used"><span class="idx">[2]</span>30</div>
+        <div class="heap-slot used"><span class="idx">[3]</span>40</div>
+        <div class="heap-slot highlight-new"><span class="idx">[4]</span>50</div>
+        <div class="heap-slot free"><span class="idx">[5]</span>—</div>
+      </div>
+    </div>
+  </div>
+  <div class="steps">
+    <div class="step"><div class="step-num">1</div><div class="step-text">检查 <code>len &lt; cap</code> → 4 &lt; 6 ✓ 无需扩容</div></div>
+    <div class="step"><div class="step-num">2</div><div class="step-text"><code>ptr::write(ptr.add(4), 50)</code> — 在偏移 4 处写入（不触发 Drop）</div></div>
+    <div class="step"><div class="step-num">3</div><div class="step-text"><code>self.len += 1</code> → len = 5</div></div>
+  </div>
 </div>
 
 <h3>3.3 insert — 中间插入</h3>

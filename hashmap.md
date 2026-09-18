@@ -29,8 +29,26 @@
          }
          ```
 
-      3. `RawTableInner`
+      3. 容积有两个含义
 
+         |             | 申请容积                   | 使用容积                                |
+         | ----------- | -------------------------- | --------------------------------------- |
+         |             | 4~8                        | 使用容积 = 申请容积 - 1                 |
+         |             | 8~2^n                      | 使用容积 = 申请容积 * 7/8               |
+         | bucket_mask | bucket_mask = 申请容积 - 1 |                                         |
+         | items       |                            | items <= 使用容积                       |
+         | growth_left |                            | 使用容积 = growth_left + items + 已删除 |
+      
+      4. 为什么 `使用容积 = 申请容积 * 7/8`
+      
+         1. **1 个字节 有数据的概率是 `a = items / 申请容积`**
+         2. `items` 接近使用容积时：`a`  接近  `7/8` 
+            那么**1 组** 全是数据的概率是 `(7/8)^8 ≈ 1/3`
+         3. 反过来，**1 组** 存在空的概率就是 `2/3`
+         4. 此时一个组是满数据的概率是 `(1/8) ^ 8`
+      
+      5. `RawTableInner`
+      
          ```rust
          // 包含以下字段
          struct RawTableInner {
@@ -114,13 +132,13 @@
                            一个控制项正好是 1 字节；Group::WIDTH 用于避免探测时越界
                         5. 返回 Layout::from_size_align_unchecked(len, ctrl_align) 布局
                      2. 申请内存 do_alloc ->  alloc.allocate(layout)
-                     3. 是否分配到更大空间
+                     3. 是否得到比预期更大空间
                         1. 是，重新计算得到的空间可以放多少桶
                            重新计算 ctrl
                         2. 否，啥也不做
                      4. 将空间转为 u8 指针
                      5. 根据现有内容返回新表
-                  3. 给新表 ctrl 填充 Empty(1111_1111) result.ctrl_slice().fill_empty(); 
+                  3. 给新表 ctrl 填充 EMPTY(1111_1111) result.ctrl_slice().fill_empty(); 
                   4. 返回新表
                2. 返回一个具有释放函数的新表
             2. TODO: 将旧表中的 数据，重新 hash 放新表对应位置
@@ -144,7 +162,7 @@
          1. 默认通过 hasZero 算法 `(cmp - 0x01_01...) & !cmp & 0x80_80...`
             初筛可能为 0 的字节，同时能确定该组具有至少一个 0 字节
          2. **但是在 mac 即 neon 指令集下可以按字节匹配 group 与 repeat(h2)**
-            **匹配的字节为 FF 不匹配的为 00**
+            **匹配的字节为 FF 不匹配的为 00, 指令为 vceq_u8**
       3. 最后通过 BITMASK_ITER_MASK(不同平台有区别)，
          最终达到的效果是：
          **匹配字节为 80，不匹配字节为 00**
@@ -154,21 +172,27 @@
             **return Ok(index)**
       5. 接下来就是没找到
       6. 尝试从 Group 中寻找可插入的槽位 find_insert_index_in_group
-         1. `Group & 0x80_80...` 
-         2.  找第一个空桶或墓碑位置 `bit = lowest_set_bit()`
+         1. **match_empty_or_deleted**
+            1. 按 i8 读出 `vreinterpret_s8_u8`
+            2. 判断值是否小于 0 `vcltz_s8`
+               1. `<0`  的字节变成 `0xFF`
+               2. `>=0` 的字节变成 `0x00`
+         2. 找第一个空桶或墓碑位置 `bit = lowest_set_bit()`
             1. insert_index = Some(pos + bit)
             2. insert_index = None
-
+         
       7. 已找到 insert_index
          1. **当前组 有空桶(代表没有存该数据)，则 return Err(fix_insert_index(insert_index))**
       
             1. 修复桶数不足一组的情况 fix_insert_index
       
-               1. 由于表会在控制字节最后填充一组 Empty 字节
+               1. 由于表会在控制字节最后填充一组 EMPTY 字节
       
                2. 有如下情况
                   ```rust
-                  [KV1，空，空，KV2][空，空，空，空，空，空，空，空]
+                                  [          这里是镜像区         ]
+                                  [     恒空    ][              ]
+                  [KV1，空，空，KV2][空，空，空，空，KV1，空，空，KV2]
                                👆🏻  👆🏻
                               [ 从 KV2 开始探测            ]
                               [ 填充的第一个空桶被误解认为是  ]
@@ -188,11 +212,12 @@
          1. 步长 + 1组的宽度
          2. pos += 步长
          3. 所以每跳一下，跨度就多一组，第一次跳时跳1组(即跳到邻组)
-
+   
 3.  find_or_find_insert_index 
 
-   1. Ok(index) => Ok(桶)
-   2. Err(index) => Err(桶)
+   1. Ok(index) => Ok(Bucket\<T>指针)
+      Bucket\<T>指针指向堆上键值对，T 是 (K, V)
+   2. Err(index) => Err(index)
 
 4. 根据最终结果执行：
 
@@ -201,6 +226,8 @@
       1. insert_tagged_at_index
          1. 修改 table.items、table.growth_left
          2. 写入控制字节 h2 set_ctrl(index, new_ctrl)
+            写入时会在镜像区 `index2 = ((index - WIDTH) & mask) + WIDTH ` 中也写入同一份数据，
+            镜像区用于保证最后一组依然能正常读取
          3. 写入键值对 bucket.write(KV)
 
       2. **return None**
@@ -210,7 +237,7 @@
 
 #### 证明三角数列在 n 次遍历内不出现重复
 
-假设 a < b < n 
+假设 a < b < n ，n 为数组长度
 
 从第 a 次到第 b次 后发生了碰撞
 
@@ -245,6 +272,51 @@
    但是 `a < b < n`, 所以在  n 次遍历内不会发生碰撞
 
 ## get
+
+1. items == 0 => return None
+2. 有数据 
+   1. 计算 hash = make_hash(...)
+   2. 查找 find_inner(hash, eq)
+      1. 获取 hash 高 7 位(h2)Tag::full
+      2. 获取探测序列
+         1. 获取初始位置 `hash % 桶数`，`这里会用 hash & self.bucket_mask` 效果一样
+         2. 初始步长 0
+      3. 开始循环
+         1. 从 probe_seq.pos 取 group
+            1. 通过 crtl(pos) 获取 `*mut Tag` 裸指针
+            2. 通过 Group::load `*mut Tag` **从低到高 读一组 Tag 出来**，
+               mac 是 64bit, x86是 128bit
+
+         2. Group 与 `repeat(h2)` 进行比对
+            1. 默认通过 hasZero 算法 `(cmp - 0x01_01...) & !cmp & 0x80_80...`
+               初筛可能为 0 的字节，同时能确定该组具有至少一个 0 字节
+            2. **但是在 mac 即 neon 指令集下可以按字节匹配 group 与 repeat(h2)**
+               **匹配的字节为 FF 不匹配的为 00**
+         3. 最后通过 BITMASK_ITER_MASK(不同平台有区别)，
+            最终达到的效果是：
+            **匹配字节为 80，不匹配字节为 00**
+         4. BitMaskIter.next 每次取最低的 具有 80 的字节的 index (低到高)
+            1. index 表示的就是第 n 个匹配上的桶
+            2. index 处桶中 key 与当前 key 是否匹配， 匹配则直接
+               **return Ok(index)**
+         5. 当前 group有空桶 group.match_empty()；**return None;**
+         6. 继续探测下一个桶 probe_seq.move_next
+   3. find 中，如果找到 index 就获取 Bucket 指针
+   4. RawTable.get 指针转不可变借用
+   5. Map.get 取值 不可变借用
+
+## remove ~ remove_entry
+
+1. 与 get 【2.有数据】 
+2. RawTable::remove_entry 通过 find 获取到 bucket 后
+   1. 通过 `self.remove(bucket)` 删除元素
+      1. `erase_no_drop` ~ `erase`
+         1. 获取 index 处的 Group，和前一个 Group
+         2. index 处于 8 个(一个Group大小)连续非空字节中
+            即 index，前后非空字节加起来 >= 8
+            那么就必须使用 DELETED 来删除
+            因为使用 EMPTY 会中断后续 find 查找，导致其错过后续可能出现的目标
+         3. 如果 index 前后非空字节 < 8 那么就可以
 
 
 
