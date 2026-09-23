@@ -107,6 +107,17 @@
   .num { color: #79c0ff; }
   .cm { color: #8b949e; font-style: italic; }
   .fn { color: #d2a8ff; }
+  .hl-line {
+    display: inline-block; width: calc(100% + 16px);
+    background: rgba(210,168,255,0.18);
+    border-left: 3px solid var(--data);
+    border-radius: 0 4px 4px 0;
+    margin-left: -16px; padding-left: 13px;
+  }
+  .hl-line::after {
+    content: "◀ 正在执行，见右图"; font-size: 10px;
+    color: var(--data); margin-left: 8px; font-style: normal;
+  }
 
   .memtable { width: 100%; border-collapse: collapse; font-size: 13px; }
   .memtable th, .memtable td {
@@ -128,6 +139,130 @@
   table.cmp td { background: var(--panel); }
   table.cmp tr td:first-child { font-family: var(--mono); color: #ffa657; white-space: nowrap; }
 
+  /* ---------- 函数调用调用帧 ---------- */
+  .stack-diagram {
+    background: transparent; border: 1px solid var(--border); border-radius: 10px;
+    padding: 16px; font-family: var(--mono); font-size: 12px;
+  }
+  .stack-diagram .addr-hint {
+    display: flex; justify-content: space-between;
+    color: var(--muted); font-size: 11px; margin-bottom: 8px;
+  }
+  .frames { display: flex; flex-direction: column; }
+  .frame {
+    border: 2px solid; border-radius: 8px; padding: 0 0 8px;
+    margin-bottom: 0; background: rgba(88,166,255,0.04);
+  }
+  .frame.main { border-color: var(--data); background: rgba(210,168,255,0.05); }
+  .frame.callee { border-color: var(--stack); }
+  .frame-head {
+    padding: 6px 12px; font-weight: 700; font-size: 13px;
+    border-bottom: 1px dashed var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .frame.main .frame-head { color: var(--data); }
+  .frame.callee .frame-head { color: var(--stack); }
+  .frame-head .sp { color: var(--muted); font-weight: 400; font-size: 11px; }
+  .cells { padding: 8px 12px 0; display: flex; flex-direction: column; gap: 5px; }
+  .cell {
+    display: grid; grid-template-columns: 88px auto minmax(0, 1fr);
+    gap: 10px; align-items: center;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 6px; padding: 5px 10px;
+  }
+  .cell .cname { color: var(--text); white-space: nowrap; }
+  .cell .cval { color: #ffa657; white-space: nowrap; }
+  .cell .cnote { color: var(--muted); font-size: 10px; text-align: right; }
+  .cell.ra { border-color: var(--arrow); background: rgba(255,166,87,0.08); }
+  .cell.ra .cname { color: var(--arrow); }
+  .gap-block {
+    border: 1px dashed var(--border); border-radius: 8px;
+    padding: 10px; text-align: center; color: var(--muted); font-size: 11px;
+    margin: 8px 0;
+  }
+  .call-arrow {
+    display: flex; align-items: center; gap: 8px;
+    color: var(--arrow); font-size: 11px; padding: 4px 12px;
+  }
+  .call-arrow::before { content: "↓"; font-size: 14px; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 12px; font-size: 11px; color: var(--muted); }
+  /* ---------- 指针连线（SVG 动态绘制） ---------- */
+  .stack-diagram { position: relative; }
+  .mem-grid { position: relative; }
+  .wires {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    pointer-events: none; z-index: 2;
+  }
+  .wire { fill: none; stroke-width: 2; stroke-dasharray: 6 4; }
+  .wire-heap { stroke: var(--heap); }
+  .wire-data { stroke: var(--data); }
+  .wire-code { stroke: var(--code); }
+  .wire-label {
+    position: absolute; transform: translate(-50%, -50%);
+    font-size: 11px; white-space: nowrap;
+    padding: 1px 8px; border-radius: 10px;
+    background: var(--bg); border: 1px solid var(--border);
+    z-index: 3; pointer-events: none;
+  }
+  .wire-label.lb-heap { color: var(--heap); }
+  .wire-label.lb-data { color: var(--data); }
+  .wire-label.lb-code { color: var(--code); }
+  .frames, .rodata-box, .heap-region, .text-box { position: relative; z-index: 1; }
+  .chip {
+    display: inline-block; padding: 0 7px; border-radius: 10px;
+    border: 1px solid; font-size: 11px; line-height: 1.6;
+  }
+  .chip.chip-heap { color: var(--heap); border-color: var(--heap); background: rgba(247,129,102,0.12); }
+  .chip.chip-data { color: var(--data); border-color: var(--data); background: rgba(210,168,255,0.12); }
+  .rodata-box {
+    border: 1px solid var(--data); border-radius: 8px;
+    background: rgba(210,168,255,0.06); padding: 10px 12px;
+  }
+  .rodata-head { color: var(--data); font-weight: 700; font-size: 12px; }
+  .rodata-head .en { color: var(--muted); font-weight: 400; font-size: 11px; margin-left: 6px; }
+  .rodata-bytes { display: flex; gap: 6px; margin-top: 8px; }
+  .byte {
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 5px;
+    padding: 4px 10px;
+  }
+  .byte b { color: var(--text); font-weight: 600; }
+  .byte i { font-style: normal; color: var(--muted); font-size: 10px; }
+  .cell.pointed { border-color: var(--data); background: rgba(210,168,255,0.08); }
+  .cell.pointed .cname { color: var(--data); }
+  .heap-region {
+    border: 1px solid var(--heap); border-radius: 8px;
+    background: rgba(247,129,102,0.06); padding: 10px 12px;
+  }
+  .heap-region .rodata-head { color: var(--heap); }
+  .heap-fields { display: flex; gap: 6px; margin-top: 8px; }
+  .fcell {
+    flex: 1; display: flex; flex-direction: column; gap: 2px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 5px;
+    padding: 4px 10px;
+  }
+  .fcell .fname { color: var(--muted); font-size: 10px; }
+  .fcell .fval { color: var(--text); font-weight: 600; }
+  .fcell .fval.none { color: var(--muted); font-weight: 400; }
+  .mem-grid {
+    display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    gap: 16px; align-items: start;
+  }
+  .mem-col { display: flex; flex-direction: column; min-width: 0; }
+  .text-box {
+    border: 1px solid var(--code); border-radius: 8px;
+    background: rgba(126,231,135,0.06); padding: 10px 12px;
+  }
+  .text-box .rodata-head { color: var(--code); }
+  .legend span::before {
+    content: ""; display: inline-block; width: 10px; height: 10px;
+    border-radius: 3px; margin-right: 5px; vertical-align: -1px;
+    border: 1px solid var(--border);
+  }
+  .legend .lg-main::before { background: rgba(210,168,255,0.5); border-color: var(--data); }
+  .legend .lg-callee::before { background: rgba(88,166,255,0.5); border-color: var(--stack); }
+  .legend .lg-ra::before { background: rgba(255,166,87,0.5); border-color: var(--arrow); }
+
   .note {
     background: var(--panel-2); border: 1px solid var(--border);
     border-left: 4px solid var(--arrow); border-radius: 8px;
@@ -139,6 +274,13 @@
 </style>
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <marker id="ah-heap" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#f78166"/></marker>
+    <marker id="ah-data" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#d2a8ff"/></marker>
+    <marker id="ah-code" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#7ee787"/></marker>
+  </defs>
+</svg>
 <div class="wrap">
 
   <h1>Rust 内存空间布局</h1>
@@ -243,6 +385,303 @@
     </table>
   </div>
 
+  <!-- ============ person_ptr 内存布局 ============ -->
+  <h2>person_ptr 内存布局：引用就是「存下来的地址」</h2>
+  <div class="map">
+<pre><span class="kw">struct</span> <span class="ty">Person</span> {
+    age: <span class="ty">i32</span>,
+}
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+  <span class="fn">demo</span>();
+}
+
+<span class="kw">fn</span> <span class="fn">demo</span>() {
+  <span class="kw">let</span> person = <span class="ty">Person</span> { age: <span class="num">18</span> };  <span class="cm">// 值整体在栈上</span>
+<span class="hl-line">  <span class="kw">let</span> person_ptr = &amp;person;          <span class="cm">// 只是把 person 的地址存下来</span></span>
+}</pre>
+
+    <div class="stack-diagram" id="mem-person" data-wires='[{"from":"cell-personptr","fromSide":"top","to":"cell-person","toSide":"bottom","color":"data","label":"person_ptr 存的就是这格的地址"}]'>
+      <div class="addr-hint">
+        <span>高地址（先入栈）</span>
+        <span>低地址（后入栈）▼ 栈向下增长</span>
+      </div>
+      <div class="frames">
+        <div class="frame main">
+          <div class="frame-head"><span>main 的调用帧</span><span class="sp">rsp 在调用后位于帧底</span></div>
+          <div class="cells">
+            <div class="cell"><span class="cname">—</span><span class="cval">无局部变量</span><span class="cnote">只有一条 call 指令</span></div>
+          </div>
+        </div>
+        <div class="call-arrow">call demo —— 压入返回地址，跳转进 demo</div>
+        <div class="frame callee">
+          <div class="frame-head"><span>demo 的调用帧</span><span class="sp">函数执行期间 rsp 指向这里</span></div>
+          <div class="cells">
+            <div class="cell ra"><span class="cname">返回地址</span><span class="cval">→ main 中 call 的下一条指令</span><span class="cnote">8B · 指向 .text</span></div>
+            <div class="cell pointed" id="cell-person"><span class="cname">person</span><span class="cval">{ age: 18 }</span><span class="cnote">Person · 4B · 被指向的数据</span></div>
+            <div class="cell" id="cell-personptr" style="margin-top:64px"><span class="cname">person_ptr</span><span class="cval">0x7ffd…a40</span><span class="cnote">&amp;Person 瘦指针 · 8B，只存地址</span></div>
+          </div>
+        </div>
+        <div class="gap-block">…… 更深的调用继续向下（低地址）压帧，ret 后整帧作废 ……</div>
+        <div class="addr-hint" style="margin:0"><span>栈底（低地址边界）</span><span>main 之前还有启动代码的帧</span></div>
+      </div>
+      <div class="legend">
+        <span class="lg-main">main 的帧</span>
+        <span class="lg-callee">demo 的帧</span>
+        <span class="lg-ra">返回地址</span>
+        <span>箭头不出栈段：数据与引用都在同一帧内</span>
+      </div>
+      <svg class="wires" preserveAspectRatio="none"></svg>
+    </div>
+  </div>
+
+  <div class="note" style="margin-top:14px">
+    <b>关键点：</b><code>&amp;Person</code> 引用本身也是栈上的一个普通值——8 字节的地址，没有任何额外字段（不像 <code>&amp;str</code> 是 ptr+len 的胖指针，<code>Person</code> 大小编译期已知，所以是瘦指针）。
+    它不拥有 <code>person</code>，不负责释放；<code>person_ptr</code> 和 <code>person</code> 同处一个栈帧，箭头完全没有离开栈。
+    借用（borrow）的本质就是「把地址借给别人用，所有权还在原变量手里」。
+  </div>  
+  <!-- ============ 两层函数调用的调用帧 ============ -->
+  <h2>hello 内存布局</h2>
+  <div class="map">
+<pre><span class="kw">fn</span> <span class="fn">main</span>() {
+  <span class="fn">demo</span>();                 <span class="cm">// ← 调用 demo，压入新调用帧</span>
+}                         <span class="cm">// main 返回 → 整帧回收</span>
+
+<span class="kw">fn</span> <span class="fn">demo</span>() {
+  <span class="kw">let</span> hello = <span class="str">"hello"</span>;        <span class="cm">// 字面量在 .rodata，栈上是胖指针</span>
+  <span class="kw">let</span> tuple = (<span class="str">'a'</span>, <span class="num">2</span>, <span class="kw">true</span>); <span class="cm">// 值整体放栈上</span>
+<span class="hl-line">  <span class="kw">let</span> arr = [<span class="num">1</span>, <span class="num">2</span>, <span class="num">3</span>];         <span class="cm">// 定长数组整体在栈上</span></span>
+}</pre>
+
+    <div class="stack-diagram" id="mem-hello" data-wires='[{"from":"hello-ptr","fromSide":"bottom","to":"rodata-hello","toSide":"top","toX":0.4,"color":"data","label":"hello.ptr —— 跨段指向只读数据"}]'>
+      <div class="addr-hint">
+        <span>高地址（先入栈）</span>
+        <span>低地址（后入栈）▼ 栈向下增长</span>
+      </div>
+      <div class="frames">
+        <div class="frame main">
+          <div class="frame-head"><span>main 的调用帧</span><span class="sp">rsp 在调用后位于帧底</span></div>
+          <div class="cells">
+            <div class="cell"><span class="cname">—</span><span class="cval">无局部变量</span><span class="cnote">只有一条 call 指令</span></div>
+          </div>
+        </div>
+        <div class="call-arrow">call demo —— 压入返回地址，跳转进 demo</div>
+        <div class="frame callee">
+          <div class="frame-head"><span>demo 的调用帧</span><span class="sp">函数执行期间 rsp 指向这里</span></div>
+          <div class="cells">
+            <div class="cell ra"><span class="cname">返回地址</span><span class="cval">→ main 中 call 的下一条指令</span><span class="cnote">8B · 指向 .text</span></div>
+            <div class="cell"><span class="cname">tuple</span><span class="cval">('a', 2, true)</span><span class="cnote">char+i32+bool · 12B</span></div>
+            <div class="cell"><span class="cname">arr</span><span class="cval">[1, 2, 3]</span><span class="cnote">[i32; 3] · 12B</span></div>
+            <div class="cell" id="cell-hello"><span class="cname">hello</span><span class="cval">{<span class="chip chip-data" id="hello-ptr">ptr</span>, len=5}</span><span class="cnote">&amp;str 胖指针 · 16B，ptr → .rodata</span></div>
+          </div>
+        </div>
+        <div class="gap-block">…… 更深的调用继续向下（低地址）压帧，ret 后整帧作废 ……</div>
+        <div class="addr-hint" style="margin:0"><span>栈底（低地址边界）</span><span>main 之前还有启动代码的帧</span></div>
+      </div>
+      <div class="rodata-box" id="rodata-hello" style="margin-top:34px">
+        <div class="rodata-head">.rodata 全局静态数据段<span class="en">编译期地址固定 · 不可写 · 与栈的地址无关，此处仅为引用关系</span></div>
+        <div class="rodata-bytes">
+          <div class="byte"><b>h</b><i>0</i></div>
+          <div class="byte"><b>e</b><i>1</i></div>
+          <div class="byte"><b>l</b><i>2</i></div>
+          <div class="byte"><b>l</b><i>3</i></div>
+          <div class="byte"><b>o</b><i>4</i></div>
+        </div>
+      </div>
+      <div class="legend">
+        <span class="lg-main">main 的帧</span>
+        <span class="lg-callee">demo 的帧</span>
+        <span class="lg-ra">返回地址</span>
+        <span>每帧独立，互不重叠；函数 return 即整体弹出</span>
+      </div>
+      <svg class="wires" preserveAspectRatio="none"></svg>
+    </div>
+  </div>
+
+  <div class="note" style="margin-top:14px">
+    <b>要点：</b>每次调用都「压」一个新帧，返回时整帧「弹」出——这正是栈内存无需 GC 的原因：
+    生命周期严格等于函数执行期，帧内所有变量（包括 String 头、Box 指针）随帧一起消失，
+    堆数据则在弹帧前的 <code>drop</code> 中释放。递归就是不断压帧，栈溢出（stack overflow）就是帧压穿了预留空间。
+  </div>
+
+  <!-- ============ 链表内存布局 ============ -->
+  <h2>链表内存布局：栈上的头节点 → 堆上的后续节点</h2>
+  <div class="map">
+<pre><span class="kw">fn</span> <span class="fn">main</span>() {
+  <span class="fn">demo</span>();
+}
+
+<span class="kw">fn</span> <span class="fn">demo</span>() {
+  <span class="kw">struct</span> <span class="ty">Node</span> {
+    value: <span class="ty">i32</span>,
+    next: <span class="ty">Option</span>&lt;<span class="ty">Box</span>&lt;<span class="ty">Node</span>&gt;&gt;,
+  }
+
+  <span class="kw">let</span> head = <span class="ty">Node</span> {
+    value: <span class="num">1</span>,
+<span class="hl-line">    next: <span class="ty">Some</span>(<span class="ty">Box</span>::<span class="fn">new</span>(<span class="ty">Node</span> {</span>
+      value: <span class="num">2</span>,
+      next: <span class="ty">None</span>,
+    })),
+  };  <span class="cm">// head 拥有整条链</span>
+}</pre>
+
+    <div class="stack-diagram" id="mem-list" data-wires='[{"from":"head-next","fromSide":"bottom","to":"heap-node2","toSide":"top","toX":0.3,"color":"heap","label":"head.next —— 离开栈，指向堆上的节点 2"}]'>
+      <div class="addr-hint">
+        <span>高地址（先入栈）</span>
+        <span>低地址（后入栈）▼ 栈向下增长</span>
+      </div>
+      <div class="frames">
+        <div class="frame main">
+          <div class="frame-head"><span>main 的调用帧</span><span class="sp">rsp 在调用后位于帧底</span></div>
+          <div class="cells">
+            <div class="cell"><span class="cname">—</span><span class="cval">无局部变量</span><span class="cnote">只有一条 call 指令</span></div>
+          </div>
+        </div>
+        <div class="call-arrow">call demo —— 压入返回地址，跳转进 demo</div>
+        <div class="frame callee">
+          <div class="frame-head"><span>demo 的调用帧</span><span class="sp">函数执行期间 rsp 指向这里</span></div>
+          <div class="cells">
+            <div class="cell ra"><span class="cname">返回地址</span><span class="cval">→ main 中 call 的下一条指令</span><span class="cnote">8B · 指向 .text</span></div>
+            <div class="cell pointed"><span class="cname">head</span><span class="cval">{ value: 1, next: <span class="chip chip-heap" id="head-next">ptr</span> }</span><span class="cnote">Node · 16B = 4B value + 4B 对齐 + 8B next · 在栈上</span></div>
+          </div>
+        </div>
+        <div class="gap-block">…… 更深的调用继续向下（低地址）压帧，ret 后整帧作废 ……</div>
+        <div class="addr-hint" style="margin:0"><span>栈底（低地址边界）</span><span>main 之前还有启动代码的帧</span></div>
+      </div>
+      <div class="heap-region" id="heap-node2" style="margin-top:34px">
+        <div class="rodata-head">堆 Heap<span class="en">Box::new 运行时分配 · 16B · 由 head 拥有，drop 时释放</span></div>
+        <div class="heap-fields">
+          <div class="fcell"><span class="fname">value（第 0-3 字节）</span><span class="fval">2</span></div>
+          <div class="fcell"><span class="fname">next（第 8-15 字节）</span><span class="fval none">None → 0x0（空指针）</span></div>
+        </div>
+      </div>
+      <div class="legend">
+        <span class="lg-main">main 的帧</span>
+        <span class="lg-callee">demo 的帧</span>
+        <span class="lg-ra">返回地址</span>
+        <span>链的入口在栈，后续节点在堆，逐个用 next 串起来</span>
+      </div>
+      <svg class="wires" preserveAspectRatio="none"></svg>
+    </div>
+  </div>
+
+  <div class="note" style="margin-top:14px">
+    <b>关键点：</b><code>Box&lt;Node&gt;</code> 让递归类型成为可能——<code>Node</code> 的大小不再无限递归，栈上永远只有一个固定 16B 的「头」。
+    <code>Option&lt;Box&lt;T&gt;&gt;</code> 有空指针优化：<code>None</code> 就是指针为 0，不占额外空间；<code>next</code> 为 <code>None</code> 表示链的尽头。
+    所有权的链条 = 释放的链条：head 在栈上拥有整条链，demo 返回时 head 被 drop，自动沿着 <code>next</code> 逐个释放堆节点，无需 GC。
+  </div>
+
+  <!-- ============ smart_ptr 内存布局 ============ -->
+  <h2>smart_ptr 内存布局：Box&lt;dyn Trait&gt; 的三层箭头</h2>
+<pre><span class="kw">trait</span> <span class="ty">TailAction</span> {
+  <span class="kw">fn</span> <span class="fn">shake_tail</span>(&amp;<span class="kw">self</span>);      <span class="cm">// 动态分发的方法</span>
+}
+
+<span class="kw">struct</span> <span class="ty">Cat</span> {
+  name: <span class="ty">String</span>,
+}
+
+<span class="kw">impl</span> <span class="ty">TailAction</span> <span class="kw">for</span> <span class="ty">Cat</span> {
+  <span class="kw">fn</span> <span class="fn">shake_tail</span>(&amp;<span class="kw">self</span>) { <span class="cm">/* ... */</span> }
+}
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+  <span class="fn">demo</span>();
+}
+
+<span class="kw">fn</span> <span class="fn">demo</span>() {
+  <span class="kw">let</span> cat = <span class="ty">Cat</span> {
+    name: <span class="ty">String</span>::<span class="fn">from</span>(<span class="str">"小白"</span>),
+  };
+
+<span class="hl-line">  <span class="kw">let</span> smart_ptr: <span class="ty">Box</span>&lt;<span class="kw">dyn</span> <span class="ty">TailAction</span>&gt; = <span class="ty">Box</span>::<span class="fn">new</span>(cat);</span>
+}  <span class="cm">// cat 已被「移动」进堆，栈上只剩 smart_ptr</span></pre>
+
+  <div class="mem-grid" id="mem-smart" data-wires='[
+    {"from":"sp-data","fromSide":"right","to":"cat-box","toSide":"left","color":"heap","label":"data_ptr —— 指向堆上的 Cat（cat 已被移动）"},
+    {"from":"cat-nameptr","fromSide":"bottom","to":"heap-bytes","toSide":"top","toX":0.22,"color":"heap","label":"name.ptr —— 指向字符串字节"},
+    {"from":"sp-vt","fromSide":"bottom","to":"vtable-box","toSide":"top","toX":0.3,"color":"data","label":"vtable —— 指向只读数据段"},
+    {"from":"vt-shake","fromSide":"bottom","to":"text-box","toSide":"top","toX":0.62,"color":"code","label":"vtable.shake_tail —— 跳进代码段"}
+  ]'>
+    <div class="mem-col">
+      <div class="stack-diagram">
+        <div class="addr-hint">
+          <span>高地址（先入栈）</span>
+          <span>低地址（后入栈）▼ 栈向下增长</span>
+        </div>
+        <div class="frames">
+          <div class="frame main">
+            <div class="frame-head"><span>main 的调用帧</span><span class="sp">rsp 在调用后位于帧底</span></div>
+            <div class="cells">
+              <div class="cell"><span class="cname">—</span><span class="cval">无局部变量</span><span class="cnote">只有一条 call 指令</span></div>
+            </div>
+          </div>
+          <div class="call-arrow">call demo —— 压入返回地址，跳转进 demo</div>
+          <div class="frame callee">
+            <div class="frame-head"><span>demo 的调用帧</span><span class="sp">函数执行期间 rsp 指向这里</span></div>
+            <div class="cells">
+              <div class="cell ra"><span class="cname">返回地址</span><span class="cval">→ main 中 call 的下一条指令</span><span class="cnote">8B · 指向 .text</span></div>
+              <div class="cell pointed"><span class="cname">smart_ptr</span><span class="cval">{ <span class="chip chip-heap" id="sp-data">data_ptr</span>, <span class="chip chip-data" id="sp-vt">vtable</span> }</span><span class="cnote">&amp;dyn Trait 胖指针 · 16B · 两个字段各指向一处</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="rodata-box" id="vtable-box" style="margin-top:46px">
+        <div class="rodata-head">.rodata · Cat 的 vtable<span class="en">编译期生成 · 只读 · 每个类型一份</span></div>
+        <div class="heap-fields">
+          <div class="fcell"><span class="fname">drop_in_place</span><span class="fval">→ Cat 的 drop 代码</span></div>
+          <div class="fcell"><span class="fname">size / align</span><span class="fval">24 / 8</span></div>
+          <div class="fcell" id="vt-shake"><span class="fname">shake_tail</span><span class="fval">→ Cat::shake_tail 指令</span></div>
+        </div>
+      </div>
+      <div class="text-box" id="text-box" style="margin-top:46px">
+        <div class="rodata-head">.text 代码段<span class="en">编译后的机器指令 · 只读 · 多进程共享</span></div>
+        <div class="heap-fields">
+          <div class="fcell"><span class="fname">main / demo</span><span class="fval">call、ret 等指令</span></div>
+          <div class="fcell"><span class="fname">Cat::shake_tail</span><span class="fval">摇尾巴的方法体指令</span></div>
+          <div class="fcell"><span class="fname">drop_in_place::Cat</span><span class="fval">释放 Cat 的指令</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="mem-col" style="margin-top:135px">
+      <div class="heap-region" id="cat-box">
+        <div class="rodata-head">堆 Heap · Cat 值<span class="en">Box::new 分配 · 24B · 由 smart_ptr 拥有</span></div>
+        <div class="heap-fields">
+          <div class="fcell" id="cat-nameptr"><span class="fname">name.ptr</span><span class="fval">→ 下方又一块堆内存</span></div>
+          <div class="fcell"><span class="fname">name.len</span><span class="fval">6</span></div>
+          <div class="fcell"><span class="fname">name.cap</span><span class="fval">6</span></div>
+        </div>
+      </div>
+      <div class="heap-region" id="heap-bytes" style="margin-top:46px">
+        <div class="rodata-head">堆 Heap · "小白" 的 UTF-8 字节<span class="en">String 缓冲 · 6B（小 3B + 白 3B）· 由 name 拥有</span></div>
+        <div class="rodata-bytes">
+          <div class="byte"><b>E5</b><i>0</i></div>
+          <div class="byte"><b>B0</b><i>1</i></div>
+          <div class="byte"><b>8F</b><i>2</i></div>
+          <div class="byte"><b>E7</b><i>3</i></div>
+          <div class="byte"><b>99</b><i>4</i></div>
+          <div class="byte"><b>BD</b><i>5</i></div>
+        </div>
+      </div>
+    </div>
+    <svg class="wires" preserveAspectRatio="none"></svg>
+  </div>
+
+  <div class="legend" style="margin-top:12px">
+    <span class="lg-main">main 的帧</span>
+    <span class="lg-callee">demo 的帧</span>
+    <span class="lg-ra">返回地址</span>
+    <span>数据在栈右侧的堆，vtable 在栈下方，方法指令在 .text</span>
+  </div>
+
+  <div class="note" style="margin-top:14px">
+    <b>关键点：</b><code>Box::new(cat)</code> 把 <code>cat</code> 整体<b>移动</b>进堆——栈上从此只有 <code>smart_ptr</code> 这个胖指针
+    （<code>data_ptr</code> + <code>vtable</code>，16B），不能再通过 <code>cat</code> 访问它。
+    数据要解两层引用（smart_ptr → 堆上的 Cat → 堆上的字节）；调用 <code>shake_tail</code> 时先查 vtable 拿到函数指针，再跳进 <code>.text</code> 执行——
+    这就是 <code>dyn Trait</code> 动态分发的全部开销。drop 时按拥有关系层层释放：Box 释放 Cat，String 再释放字节缓冲。
+  </div>
+
   <!-- ============ 对照表 ============ -->
   <h2>常见类型放哪、多大</h2>
   <table class="cmp">
@@ -266,5 +705,88 @@
 
   <div class="footer">Rust 内存布局图解 · 2026-07-24 · 暗色主题</div>
 </div>
+
+<script>
+(function () {
+  var NS = 'http://www.w3.org/2000/svg';
+
+  function anchor(el, side, fx) {
+    var r = el.getBoundingClientRect();
+    var cx = r.left + r.width * (fx == null ? 0.5 : fx);
+    var cy = r.top + r.height / 2;
+    if (side === 'right')  return { x: r.right, y: cy };
+    if (side === 'left')   return { x: r.left,  y: cy };
+    if (side === 'bottom') return { x: cx, y: r.bottom };
+    return { x: cx, y: r.top };
+  }
+
+  function draw(container) {
+    var svg = container.querySelector('.wires');
+    if (!svg) return;
+    var cr = container.getBoundingClientRect();
+    svg.setAttribute('viewBox', '0 0 ' + cr.width + ' ' + cr.height);
+    container.querySelectorAll('.wire-label').forEach(function (l) { l.remove(); });
+    svg.querySelectorAll('path.wire').forEach(function (p) { p.remove(); });
+
+    var wires;
+    try { wires = JSON.parse(container.getAttribute('data-wires')); } catch (e) { return; }
+    if (!wires) return;
+
+    wires.forEach(function (w) {
+      var se = document.getElementById(w.from);
+      var te = document.getElementById(w.to);
+      if (!se || !te) return;
+      var s = anchor(se, w.fromSide, w.fromX);
+      var t = anchor(te, w.toSide, w.toX);
+      s.x -= cr.left; s.y -= cr.top;
+      t.x -= cr.left; t.y -= cr.top;
+
+      var horiz = w.fromSide === 'left' || w.fromSide === 'right';
+      var c1, c2, d;
+      if (horiz) {
+        var dx = (t.x - s.x) * 0.45;
+        c1 = { x: s.x + dx, y: s.y };
+        c2 = { x: t.x - dx, y: t.y };
+      } else {
+        var dy = (t.y - s.y) * 0.45;
+        c1 = { x: s.x, y: s.y + dy };
+        c2 = { x: t.x, y: t.y - dy };
+      }
+      d = 'M ' + s.x + ' ' + s.y +
+          ' C ' + c1.x + ' ' + c1.y + ', ' + c2.x + ' ' + c2.y + ', ' + t.x + ' ' + t.y;
+
+      var p = document.createElementNS(NS, 'path');
+      p.setAttribute('class', 'wire wire-' + w.color);
+      p.setAttribute('d', d);
+      p.setAttribute('marker-end', 'url(#ah-' + w.color + ')');
+      svg.appendChild(p);
+
+      if (w.label) {
+        var mx = (s.x + 3 * c1.x + 3 * c2.x + t.x) / 8;
+        var my = (s.y + 3 * c1.y + 3 * c2.y + t.y) / 8;
+        var lb = document.createElement('div');
+        lb.className = 'wire-label lb-' + w.color;
+        lb.textContent = w.label;
+        lb.style.left = mx + 'px';
+        lb.style.top = my + 'px';
+        container.appendChild(lb);
+      }
+    });
+  }
+
+  function drawAll() {
+    document.querySelectorAll('[data-wires]').forEach(draw);
+  }
+
+  window.addEventListener('resize', drawAll);
+  window.addEventListener('load', drawAll);
+  drawAll();
+
+  if (window.ResizeObserver) {
+    var ro = new ResizeObserver(drawAll);
+    document.querySelectorAll('[data-wires]').forEach(function (c) { ro.observe(c); });
+  }
+})();
+</script>
 </body>
 </html>

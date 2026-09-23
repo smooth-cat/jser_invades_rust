@@ -11,7 +11,7 @@ pub fn demo() {
     next: Option<Box<Node>>,
   }
 
-  let nodes = Node {
+  let head = Node {
     value: 1,
     next: Some(Box::new(Node {
       value: 2,
@@ -26,13 +26,27 @@ pub fn demo() {
     }
   }
 
-  struct Cat;
+  struct Cat {
+    name: String,
+  };
   impl TailAction for Cat {}
 
   struct Dog;
   impl TailAction for Dog {}
 
-  let animals: Vec<Box<dyn TailAction>> = vec![Box::new(Cat), Box::new(Dog)];
+  
+  let cat = Cat {
+    name: String::from("小白"),
+  };
+  let ptr: &dyn TailAction = &cat;
+  // 会把栈上的数据复制到堆上
+  // 编译器可能优化成直接在堆上生成数据
+  let smart_ptr: Box<dyn TailAction> = Box::new(cat);
+
+  let animals: Vec<Box<dyn TailAction>> = vec![
+    Box::new(Cat { name: String::from("梨花") }),
+    Box::new(Dog),
+  ];
   for ele in &animals {
     ele.shake_tail();
   }
@@ -43,7 +57,10 @@ pub fn demo() {
     Dog(Dog),
   }
 
-  let animals = vec![Animal::Cat(Cat), Animal::Dog(Dog)];
+  let animals = vec![
+    Animal::Cat(Cat { name: String::from("梨花") }),
+    Animal::Dog(Dog),
+  ];
 
   for ele in &animals {
     match ele {
