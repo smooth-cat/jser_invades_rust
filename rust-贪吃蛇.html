@@ -22,6 +22,7 @@
     border-radius: 4px;
     box-shadow: 0 12px 32px rgba(0, 0, 0, .3);
     cursor: pointer;
+    touch-action: none;
   }
   .badge {
     position: absolute; top: 12px;
@@ -59,7 +60,7 @@
   </div>
 </div>
 <div id="help">
-  <kbd>↑↓←→</kbd>/<kbd>WASD</kbd> 移动 · <kbd>空格</kbd> 暂停/继续 · <kbd>G</kbd> 伸长一格 · <kbd>H</kbd> 缩短一格 · 穿过边界从另一端出现 · 点击画面也可暂停
+  <kbd>↑↓←→</kbd>/<kbd>WASD</kbd> 移动 · <kbd>空格</kbd> 暂停/继续 · <kbd>G</kbd> 伸长一格 · <kbd>H</kbd> 缩短一格 · 拖拽蛇身挪动 · 穿过边界从另一端出现 · 点击画面也可暂停
 </div>
 <script>
 'use strict';
@@ -149,7 +150,7 @@ function gameOver(win) {
 }
 
 function growCheat() {
-  if (state !== 'ready' && state !== 'running' && state !== 'paused') return;
+  if (drag || (state !== 'ready' && state !== 'running' && state !== 'paused')) return;
   const tail = snake[snake.length - 1];
   snake.push({ x: tail.x, y: tail.y });
   prevSnake.push({ x: tail.x, y: tail.y });
@@ -157,12 +158,89 @@ function growCheat() {
 }
 
 function shrinkCheat() {
-  if (state !== 'ready' && state !== 'running' && state !== 'paused') return;
+  if (drag || (state !== 'ready' && state !== 'running' && state !== 'paused')) return;
   if (snake.length <= 2) { flashHint('已经最短啦'); return; }
   snake.pop();
   prevSnake.pop();
   flashHint('长度 -1');
 }
+
+let drag = null;
+let suppressClick = false;
+
+function eventToCell(e) {
+  const rect = canvas.getBoundingClientRect();
+  const gx = (e.clientX - rect.left) / rect.width * COLS;
+  const gy = (e.clientY - rect.top) / rect.height * ROWS;
+  return {
+    x: Math.max(0, Math.min(COLS - 1, Math.floor(gx))),
+    y: Math.max(0, Math.min(ROWS - 1, Math.floor(gy))),
+  };
+}
+
+function cellsEq(a, b) { return a.x === b.x && a.y === b.y; }
+
+function cellFromEvent(e) {
+  const c = eventToCell(e);
+  return snake.findIndex(s => cellsEq(s, c));
+}
+
+function snakeUnderCursor(e) {
+  return cellFromEvent(e) !== -1;
+}
+
+canvas.addEventListener('pointerdown', e => {
+  suppressClick = false;
+  if (e.button !== 0 && e.pointerType === 'mouse') return;
+  if (state !== 'ready' && state !== 'running' && state !== 'paused') return;
+  const grabIndex = cellFromEvent(e);
+  if (grabIndex === -1) return;
+  drag = {
+    grabIndex,
+    grabCell: { ...snake[grabIndex] },
+    baseSnake: snake.map(c => ({ ...c })),
+    moved: false,
+  };
+  if (state === 'running') pause();
+  canvas.setPointerCapture(e.pointerId);
+  canvas.style.cursor = 'grabbing';
+});
+
+canvas.addEventListener('pointermove', e => {
+  if (!drag) {
+    canvas.style.cursor = snakeUnderCursor(e) ? 'grab' : 'pointer';
+    return;
+  }
+  const cell = eventToCell(e);
+  const dx = wrapDelta(cell.x - drag.grabCell.x, COLS);
+  const dy = wrapDelta(cell.y - drag.grabCell.y, ROWS);
+  if (!dx && !dy) return;
+  const shifted = drag.baseSnake.map(c => ({
+    x: (c.x + dx + COLS) % COLS,
+    y: (c.y + dy + ROWS) % ROWS,
+  }));
+  if (shifted.every((c, i) => cellsEq(c, snake[i]))) return;
+  if (apple && shifted.some(c => cellsEq(c, apple))) apple = null;
+  snake = shifted;
+  prevSnake = shifted.map(c => ({ ...c }));
+  drag.moved = true;
+});
+
+function endDrag() {
+  if (!drag) return;
+  if (drag.moved) {
+    const vx = wrapDelta(snake[0].x - snake[1].x, COLS);
+    const vy = wrapDelta(snake[0].y - snake[1].y, ROWS);
+    if (Math.abs(vx) + Math.abs(vy) === 1) dir = { x: vx, y: vy };
+    acc = 0;
+    suppressClick = true;
+  }
+  drag = null;
+  if (canvas.style.cursor === 'grabbing') canvas.style.cursor = 'grab';
+}
+
+canvas.addEventListener('pointerup', endDrag);
+canvas.addEventListener('pointercancel', endDrag);
 
 function start() { state = 'running'; acc = 0; updateHint(); }
 function pause() { state = 'paused'; updateHint(); }
@@ -386,6 +464,7 @@ window.addEventListener('keydown', e => {
 });
 
 canvas.addEventListener('click', () => {
+  if (suppressClick) { suppressClick = false; return; }
   if (state === 'ready') start();
   else if (state === 'running') pause();
   else if (state === 'paused') resume();

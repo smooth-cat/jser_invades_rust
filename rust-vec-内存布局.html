@@ -285,12 +285,12 @@ hr { border: none; border-top: 1px solid #21262d; margin: 40px 0; }
 <pre class="code-block"><code><span class="cm">// 标准库中的定义 (简化)</span>
 <span class="kw">pub struct</span> <span class="ty">Vec</span>&lt;<span class="ty">T</span>, <span class="ty">A</span>: <span class="ty">Allocator</span> = <span class="ty">Global</span>&gt; {
     buf: <span class="ty">RawVec</span>&lt;<span class="ty">T</span>, <span class="ty">A</span>&gt;,   <span class="cm">// 管理堆内存: ptr + cap</span>
-    len: <span class="ty">usize</span>,              <span class="cm">// 已使用的元素个数</span>
+    len: <span class="ty">usize</span>,              <span class="cm">// 已经存了几个元素</span>
 }
 
 <span class="kw">pub struct</span> <span class="ty">RawVec</span>&lt;<span class="ty">T</span>, <span class="ty">A</span>&gt; {
     ptr: <span class="ty">Unique</span>&lt;<span class="ty">T</span>&gt;, <span class="cm">// 非空指针 (NonNull + 所有权标记)</span>
-    cap: <span class="ty">usize</span>,       <span class="cm">// 已分配的容量 (元素个数)</span>
+    cap: <span class="ty">usize</span>,       <span class="cm">// 可存储的元素个数</span>
     alloc: <span class="ty">A</span>,         <span class="cm">// 分配器 (默认 Global, 零大小)</span>
 }</code></pre>
 

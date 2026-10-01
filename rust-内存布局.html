@@ -479,7 +479,7 @@
         <div class="addr-hint" style="margin:0"><span>栈底（低地址边界）</span><span>main 之前还有启动代码的帧</span></div>
       </div>
       <div class="rodata-box" id="rodata-hello" style="margin-top:34px">
-        <div class="rodata-head">.rodata 全局静态数据段<span class="en">编译期地址固定 · 不可写 · 与栈的地址无关，此处仅为引用关系</span></div>
+        <div class="rodata-head">.rodata 全局静态内存区<span class="en">编译期地址固定 · 不可写 · 与栈的地址无关，此处仅为引用关系</span></div>
         <div class="rodata-bytes">
           <div class="byte"><b>h</b><i>0</i></div>
           <div class="byte"><b>e</b><i>1</i></div>
@@ -508,10 +508,10 @@
   <h2>链表内存布局：栈上的头节点 → 堆上的后续节点</h2>
   <div class="map">
 <pre><span class="kw">fn</span> <span class="fn">main</span>() {
-  <span class="fn">demo</span>();
+  <span class="kw">let</span> list = <span class="fn">demo</span>();   <span class="cm">// 链的所有权从 demo 移交回 main</span>
 }
 
-<span class="kw">fn</span> <span class="fn">demo</span>() {
+<span class="kw">fn</span> <span class="fn">demo</span>() -&gt; <span class="ty">Node</span> {
   <span class="kw">struct</span> <span class="ty">Node</span> {
     value: <span class="ty">i32</span>,
     next: <span class="ty">Option</span>&lt;<span class="ty">Box</span>&lt;<span class="ty">Node</span>&gt;&gt;,
@@ -523,7 +523,8 @@
       value: <span class="num">2</span>,
       next: <span class="ty">None</span>,
     })),
-  };  <span class="cm">// head 拥有整条链</span>
+  };
+  <span class="fn">return</span> head;  <span class="cm">// 按值返回：所有权移出栈帧，堆节点不会被 drop</span>
 }</pre>
 
     <div class="stack-diagram" id="mem-list" data-wires='[{"from":"head-next","fromSide":"bottom","to":"heap-node2","toSide":"top","toX":0.3,"color":"heap","label":"head.next —— 离开栈，指向堆上的节点 2"}]'>
