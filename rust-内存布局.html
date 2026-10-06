@@ -602,7 +602,7 @@
   <div class="mem-grid" id="mem-smart" data-wires='[
     {"from":"sp-data","fromSide":"right","to":"cat-box","toSide":"left","color":"heap","label":"data_ptr —— 指向堆上的 Cat（cat 已被移动）"},
     {"from":"cat-nameptr","fromSide":"bottom","to":"heap-bytes","toSide":"top","toX":0.22,"color":"heap","label":"name.ptr —— 指向字符串字节"},
-    {"from":"sp-vt","fromSide":"bottom","to":"vtable-box","toSide":"top","toX":0.3,"color":"data","label":"vtable —— 指向只读数据段"},
+    {"from":"sp-vt","fromSide":"bottom","to":"vtable-box","toSide":"top","toX":0.3,"color":"data","label":"vtable —— 指向函数表"},
     {"from":"vt-shake","fromSide":"bottom","to":"text-box","toSide":"top","toX":0.62,"color":"code","label":"vtable.shake_tail —— 跳进代码段"}
   ]'>
     <div class="mem-col">
