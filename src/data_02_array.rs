@@ -19,7 +19,15 @@ pub fn demo() {
 
   // 双端队列 推荐 ✅，解决 Vec 头部插入性能问题
   // 场景: 任务(消息)队列
-  let queue = VecDeque::from([10, 20, 30]);
+  let mut queue = VecDeque::from([10, 20, 30]);
+  queue.push_back(40);
+  queue.pop_front();
+  // 从这行开始是内存示意图
+  // 头插 50 head -> 0
+  queue.push_front(50);
+
+  // 头插 60 head -> -1 -> 5
+  queue.push_front(60);
   
   // 双向链表 不推荐 ⭕️，虽然插入是 O(1), 但是由于它的内存分布分散，性能会下降
   // 适用于频繁变动的集合 例如 LRC 缓存
