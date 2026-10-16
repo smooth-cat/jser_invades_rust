@@ -195,6 +195,28 @@ hr { margin: 44px 0; border: 0; border-top: 1px solid var(--surface-strong); }
 .slot-index { position: absolute; top: 2px; left: 5px; color: var(--faint); font-size: 0.6rem; }
 .slot-value { display: block; color: var(--purple); font-size: 0.92rem; font-weight: 700; }
 .slot.free .slot-value { color: #484f58; }
+.slot.wrap-slot { background: var(--blue-soft); }
+.slot.wrap-slot .slot-value { color: #79c0ff; }
+.slot.heap-seg { border-top: 2px solid var(--purple); border-bottom: 2px solid var(--purple); }
+.slot-row.compact .slot { min-height: 52px; padding-top: 12px; padding-bottom: 10px; }
+.slot-row.compact .slot.swap { display: flex; align-items: center; justify-content: center; }
+.slot.swap .slot-index {
+  position: static;
+  color: var(--muted);
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+.slot.swap .slot-value {
+  position: absolute;
+  top: 2px;
+  right: 5px;
+  bottom: auto;
+  left: auto;
+  display: block;
+  margin: 0;
+  font-size: 0.62rem;
+}
 .logical-index { display: block; margin-top: 2px; color: #79c0ff; font-size: 0.62rem; }
 .slot-markers {
   position: absolute;
@@ -219,6 +241,8 @@ hr { margin: 44px 0; border: 0; border-top: 1px solid var(--surface-strong); }
 .swatch.used { background: var(--purple-soft); border-color: var(--purple); }
 .swatch.head { border-top: 3px solid var(--green); }
 .swatch.tail { border-bottom: 3px solid var(--orange); }
+.swatch.wrap-slot { background: var(--blue-soft); border-color: #335f8c; }
+.swatch.heap-seg { border-top: 2px solid var(--purple); border-bottom: 2px solid var(--purple); background: var(--purple-soft); }
 
 /* 环形视图 */
 .ring-panel { min-width: 0; }
@@ -229,16 +253,10 @@ hr { margin: 44px 0; border: 0; border-top: 1px solid var(--surface-strong); }
   aspect-ratio: 1;
   margin: 4px auto 0;
 }
-.ring-track {
+.ring-diagram::after {
   position: absolute;
-  inset: 18%;
-  border: 2px solid var(--border);
-  border-radius: 50%;
-}
-.ring-track::after {
-  position: absolute;
-  top: 44%;
-  right: -9px;
+  top: 46%;
+  right: -2px;
   padding: 1px 2px;
   background: var(--surface);
   color: var(--blue);
@@ -246,58 +264,35 @@ hr { margin: 44px 0; border: 0; border-top: 1px solid var(--surface-strong); }
   font-size: 0.72rem;
   line-height: 1;
 }
-.ring-node {
-  position: absolute;
-  top: var(--y);
-  left: var(--x);
-  display: flex;
-  width: var(--node-size, 72px);
-  height: var(--node-size, 72px);
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 8px 4px 13px;
-  transform: translate(-50%, -50%);
-  border: 2px solid var(--border);
-  border-radius: 50%;
-  background: var(--bg);
-  color: var(--faint);
-  text-align: center;
-}
-.ring-node.used { border-color: var(--purple); background: var(--purple-soft); color: var(--purple); }
-.ring-node.head { box-shadow: 0 0 0 3px var(--green); }
-.ring-node.tail { border-color: var(--orange); }
-.ring-node.head.tail { box-shadow: 0 0 0 3px var(--green), inset 0 -4px 0 var(--orange); }
-.ring-node-index { position: absolute; top: 3px; color: var(--faint); font-size: 0.58rem; }
-.ring-node-value { font-size: 0.88rem; font-weight: 700; }
-.ring-node.free .ring-node-value { color: #484f58; }
-.ring-node-logical { margin-top: 1px; color: #79c0ff; font-size: 0.58rem; }
-.ring-node.compact { padding: 6px 2px 10px; }
-.ring-node.compact .ring-node-logical { display: none; }
-.ring-node.compact .ring-node-value { font-size: 0.72rem; }
-.ring-node.compact .ring-flag { min-width: 11px; padding: 0 2px; font-size: 0.5rem; line-height: 10px; }
-.ring-node.dense { padding: 1px; }
-.ring-node.dense .ring-node-index, .ring-node.dense .ring-flags { display: none; }
-.ring-node.dense .ring-node-value { font-size: 0.62rem; }
-.ring-flags { position: absolute; right: 3px; bottom: 3px; left: 3px; display: flex; justify-content: center; gap: 3px; }
-.ring-flag { min-width: 15px; padding: 0 3px; border-radius: 3px; font-size: 0.55rem; line-height: 13px; }
-.ring-flag.head { background: var(--green-soft); color: var(--green); }
-.ring-flag.tail { background: var(--orange-soft); color: #ffa657; }
+.ring-svg { display: block; width: 100%; height: 100%; }
+.ring-svg text { font-family: inherit; }
+.ring-wedge { fill: var(--bg); stroke: var(--border); stroke-width: 1.4; }
+.ring-node.used .ring-wedge { fill: var(--purple-soft); stroke: var(--purple); }
+.ring-arc.head { fill: none; stroke: var(--green); stroke-width: 3.2; }
+.ring-arc.tail { fill: none; stroke: var(--orange); stroke-width: 3.2; }
+.ring-node-index { fill: var(--faint); }
+.ring-node-value { fill: var(--purple); font-weight: 700; }
+.ring-node.free .ring-node-value { fill: #484f58; }
+.ring-node-logical { fill: #79c0ff; }
+.ring-letter { font-size: 6px; font-weight: 700; stroke: var(--surface); stroke-width: 2.6px; paint-order: stroke; }
+.ring-letter.head { fill: var(--green); }
+.ring-letter.tail { fill: #ffa657; }
 .ring-center {
   position: absolute;
-  top: 48%;
+  top: 50%;
   left: 50%;
+  width: 46%;
   display: flex;
-  width: 104px;
   transform: translate(-50%, -50%);
   flex-direction: column;
   align-items: center;
+  gap: 1px;
   color: var(--muted);
-  font-size: 0.66rem;
+  font-size: 0.62rem;
   line-height: 1.35;
   text-align: center;
 }
-.ring-center strong { color: var(--text); font-size: 0.72rem; }
+.ring-center strong { color: var(--text); font-size: 0.7rem; }
 .ring-caption { margin-top: -4px; color: var(--muted); font-size: 0.66rem; text-align: center; }
 .state-views {
   display: grid;
@@ -418,7 +413,8 @@ hr { margin: 44px 0; border: 0; border-top: 1px solid var(--surface-strong); }
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .slot, .ring-node { transition: background-color 160ms ease, box-shadow 160ms ease; }
+  .slot { transition: background-color 160ms ease, box-shadow 160ms ease; }
+  .ring-node .ring-wedge { transition: fill 160ms ease, stroke 160ms ease; }
 }
 </style>
 </head>
@@ -526,13 +522,7 @@ hr { margin: 44px 0; border: 0; border-top: 1px solid var(--surface-strong); }
 
     <div class="flex-col ring-panel">
       <div class="ring-label">环形视图 —— 物理槽位按顺时针增加</div>
-      <div class="ring-diagram" role="img" aria-label="初始状态：槽位 0 是 10，槽位 1 是 20，槽位 2 是 30，head 和 tail 都在槽位 0">
-        <div class="ring-track" aria-hidden="true"></div>
-        <div class="ring-node used head tail" style="--x:50%;--y:14%"><span class="ring-node-index">[0]</span><span class="ring-node-value">10</span><span class="ring-node-logical">logical 0</span><span class="ring-flags"><span class="ring-flag head">H</span><span class="ring-flag tail">T</span></span></div>
-        <div class="ring-node used" style="--x:81.18%;--y:68%"><span class="ring-node-index">[1]</span><span class="ring-node-value">20</span><span class="ring-node-logical">logical 1</span></div>
-        <div class="ring-node used" style="--x:18.82%;--y:68%"><span class="ring-node-index">[2]</span><span class="ring-node-value">30</span><span class="ring-node-logical">logical 2</span></div>
-        <div class="ring-center"><strong>head = tail = 0</strong><span>len 3 / cap 3</span><span>full</span></div>
-      </div>
+      <div class="ring-diagram" id="ringInit" role="img" aria-label="初始状态：槽位 0 是 10，槽位 1 是 20，槽位 2 是 30，head 和 tail 都在槽位 0"></div>
       <div class="ring-caption">H = head · T = tail · 顺时针是物理索引增加方向</div>
     </div>
   </div>
@@ -558,13 +548,7 @@ hr { margin: 44px 0; border: 0; border-top: 1px solid var(--surface-strong); }
     </div>
     <div class="ring-panel">
       <div class="ring-label">pop_front 后的环形视图</div>
-      <div class="ring-diagram" role="img" aria-label="pop_front 后：槽位 0 空闲且是 tail，槽位 1 是 head 且值为 20，槽位 2 的值为 30">
-        <div class="ring-track" aria-hidden="true"></div>
-        <div class="ring-node free tail" style="--x:50%;--y:14%"><span class="ring-node-index">[0]</span><span class="ring-node-value">—</span><span class="ring-flags"><span class="ring-flag tail">T</span></span></div>
-        <div class="ring-node used head" style="--x:81.18%;--y:68%"><span class="ring-node-index">[1]</span><span class="ring-node-value">20</span><span class="ring-node-logical">logical 0</span><span class="ring-flags"><span class="ring-flag head">H</span></span></div>
-        <div class="ring-node used" style="--x:18.82%;--y:68%"><span class="ring-node-index">[2]</span><span class="ring-node-value">30</span><span class="ring-node-logical">logical 1</span></div>
-        <div class="ring-center"><strong>head 1 → tail 0</strong><span>len 2 / cap 3</span><span>logical: 20, 30</span></div>
-      </div>
+      <div class="ring-diagram" id="ringPop" role="img" aria-label="pop_front 后：槽位 0 空闲且是 tail，槽位 1 是 head 且值为 20，槽位 2 的值为 30"></div>
     </div>
   </div>
   <div class="steps">
@@ -590,13 +574,7 @@ hr { margin: 44px 0; border: 0; border-top: 1px solid var(--surface-strong); }
     </div>
     <div class="ring-panel">
       <div class="ring-label">push_back(40) 后的环形视图</div>
-      <div class="ring-diagram" role="img" aria-label="push_back 40 后：槽位 0 是 40，槽位 1 是 20 且 head 和 tail 都在这里，槽位 2 是 30，逻辑顺序为 20 30 40">
-        <div class="ring-track" aria-hidden="true"></div>
-        <div class="ring-node used" style="--x:50%;--y:14%"><span class="ring-node-index">[0]</span><span class="ring-node-value">40</span><span class="ring-node-logical">logical 2</span></div>
-        <div class="ring-node used head tail" style="--x:81.18%;--y:68%"><span class="ring-node-index">[1]</span><span class="ring-node-value">20</span><span class="ring-node-logical">logical 0</span><span class="ring-flags"><span class="ring-flag head">H</span><span class="ring-flag tail">T</span></span></div>
-        <div class="ring-node used" style="--x:18.82%;--y:68%"><span class="ring-node-index">[2]</span><span class="ring-node-value">30</span><span class="ring-node-logical">logical 1</span></div>
-        <div class="ring-center"><strong>head = tail = 1</strong><span>len 3 / cap 3</span><span>logical: 20, 30, 40</span></div>
-      </div>
+      <div class="ring-diagram" id="ringPush" role="img" aria-label="push_back 40 后：槽位 0 是 40，槽位 1 是 20 且 head 和 tail 都在这里，槽位 2 是 30，逻辑顺序为 20 30 40"></div>
     </div>
   </div>
   <div class="steps">
@@ -646,6 +624,64 @@ hr { margin: 44px 0; border: 0; border-top: 1px solid var(--surface-strong); }
   <div class="slice-output" id="sliceOutput"></div>
   <div class="lab-message" id="labMessage" aria-live="polite">初始化完成：3 个 i32 连续存放，当前缓冲区已满。</div>
 </section>
+
+<h3>环绕函数：把堆块外的索引映射回内部</h3>
+
+<p>当 <code>head</code> 前移或 <code>tail</code> 越过堆块边界时，索引会短暂落到 <code>[-cap, 0)</code> 或 <code>[cap, 2cap)</code> 区间。环绕函数负责把它们折回 <code>[0, cap)</code>，避免写出模运算的分支差异：</p>
+
+<div class="code-block"><span class="cm">// i 是包裹后的逻辑索引，cap 是堆块容量</span>
+<span class="kw">fn</span> <span class="fn">surround</span>(i: <span class="ty">i32</span>, cap: <span class="ty">i32</span>) -> <span class="ty">i32</span> {
+  <span class="cm">// [-cap, 0) → 加 cap 回到正区间</span>
+  <span class="kw">if</span> i < <span class="num">0</span> { <span class="kw">return</span> i + cap; }
+  <span class="cm">// [0, cap) 直接存</span>
+  <span class="kw">if</span> i < cap { <span class="kw">return</span> i; }
+  <span class="cm">// [cap, 2cap) → 减 cap 环绕回开头</span>
+  i - cap
+}
+
+<span class="cm">// cap = 6 时：surround(-1, 6) = 5，surround(6, 6) = 0</span></div>
+
+<div class="memory-scene">
+  <div class="scene-title">cap = 6 · 数轴条形：[-6, 12) 共 18 格，每格标出 surround(i, 6) 的映射结果</div>
+  <div class="zone-label" style="color:var(--blue)">全部索引逐格画出 · 左越界 → 中间堆块 ← 右越界</div>
+  <div class="heap-block" style="min-width:min(100%,1000px)">
+    <div class="heap-title">cap = 6 · 每格中央是源索引 i，右上角标是 surround(i, 6) 的结果</div>
+    <div class="slot-row compact" style="grid-template-columns:repeat(18,minmax(52px,1fr));min-width:944px">
+      <div class="slot wrap-slot swap"><span class="slot-index">-6</span><span class="slot-value">0</span></div>
+      <div class="slot wrap-slot swap"><span class="slot-index">-5</span><span class="slot-value">1</span></div>
+      <div class="slot wrap-slot swap"><span class="slot-index">-4</span><span class="slot-value">2</span></div>
+      <div class="slot wrap-slot swap"><span class="slot-index">-3</span><span class="slot-value">3</span></div>
+      <div class="slot wrap-slot swap"><span class="slot-index">-2</span><span class="slot-value">4</span></div>
+      <div class="slot wrap-slot swap"><span class="slot-index">-1</span><span class="slot-value">5</span></div>
+      <div class="slot used heap-seg swap" style="border-left:2px solid var(--purple)"><span class="slot-index">0</span><span class="slot-value">0</span></div>
+      <div class="slot used heap-seg swap"><span class="slot-index">1</span><span class="slot-value">1</span></div>
+      <div class="slot used heap-seg swap"><span class="slot-index">2</span><span class="slot-value">2</span></div>
+      <div class="slot used heap-seg swap"><span class="slot-index">3</span><span class="slot-value">3</span></div>
+      <div class="slot used heap-seg swap"><span class="slot-index">4</span><span class="slot-value">4</span></div>
+      <div class="slot used heap-seg swap"><span class="slot-index">5</span><span class="slot-value">5</span></div>
+      <div class="slot wrap-slot swap" style="border-left:2px solid #335f8c"><span class="slot-index">6</span><span class="slot-value">0</span></div>
+      <div class="slot wrap-slot swap"><span class="slot-index">7</span><span class="slot-value">1</span></div>
+      <div class="slot wrap-slot swap"><span class="slot-index">8</span><span class="slot-value">2</span></div>
+      <div class="slot wrap-slot swap"><span class="slot-index">9</span><span class="slot-value">3</span></div>
+      <div class="slot wrap-slot swap"><span class="slot-index">10</span><span class="slot-value">4</span></div>
+      <div class="slot wrap-slot swap"><span class="slot-index">11</span><span class="slot-value">5</span></div>
+    </div>
+    <div class="brace-row"><span class="brace-a">[-6, 0) 越界 · +cap 折回右端</span> · <span class="brace-b">[0, 6) 真实堆块 · 原样</span> · <span class="brace-a">[6, 12) 越界 · -cap 折回左端</span></div>
+  </div>
+  <div class="legend">
+    <span class="legend-item"><span class="swatch wrap-slot"></span>越界索引 → 折回堆块内</span>
+    <span class="legend-item"><span class="swatch used"></span>[0, cap) 原样保留</span>
+    <span class="legend-item"><span class="swatch heap-seg"></span>上下边框标出真实堆块边界</span>
+  </div>
+  <div class="pointer-line">ptr 指向堆块开头；左右两段的槽位值与堆块内相同槽位一一对应</div>
+  <div class="steps">
+    <div class="step"><div class="step-num">←</div><div class="step-text">左侧 <code>[-cap, 0)</code>：加 <code>+cap</code> 后落入右端，等价于 <code>(i + cap) % cap</code>。</div></div>
+    <div class="step"><div class="step-num">0</div><div class="step-text">中间 <code>[0, cap)</code>：本就是物理槽位，原样放行。</div></div>
+    <div class="step"><div class="step-num">→</div><div class="step-text">右侧 <code>[cap, 2cap)</code>：减 <code>−cap</code> 后落入左端，逻辑顺序回到堆块开头。</div></div>
+  </div>
+</div>
+
+<p class="note">数轴上 <code>−cap</code> 和 <code>+cap</code> 的两次“折叠”合起来就是一条首尾相接的环：<code>surround(i, cap)</code> 对任意整数 <code>i</code> 都给出正确的物理槽位，且没有真正的除法/取模。</p>
 
 <h2>三、逻辑索引如何映射到物理内存</h2>
 
@@ -741,24 +777,12 @@ q[<span class="num">2</span>] → slot[(<span class="num">1</span> + <span class
   <div class="ring-pair">
     <div class="ring-panel">
       <div class="ring-label">调用前：head = 1</div>
-      <div class="ring-diagram" role="img" aria-label="make_contiguous 前：head 在槽位 1，逻辑顺序 20 30 40 跨过环边界">
-        <div class="ring-track" aria-hidden="true"></div>
-        <div class="ring-node used" style="--x:50%;--y:14%"><span class="ring-node-index">[0]</span><span class="ring-node-value">40</span><span class="ring-node-logical">logical 2</span></div>
-        <div class="ring-node used head tail" style="--x:81.18%;--y:68%"><span class="ring-node-index">[1]</span><span class="ring-node-value">20</span><span class="ring-node-logical">logical 0</span><span class="ring-flags"><span class="ring-flag head">H</span><span class="ring-flag tail">T</span></span></div>
-        <div class="ring-node used" style="--x:18.82%;--y:68%"><span class="ring-node-index">[2]</span><span class="ring-node-value">30</span><span class="ring-node-logical">logical 1</span></div>
-        <div class="ring-center"><strong>A + B</strong><span>[20, 30] + [40]</span><span>full</span></div>
-      </div>
+      <div class="ring-diagram" id="ringBefore" role="img" aria-label="make_contiguous 前：head 在槽位 1，逻辑顺序 20 30 40 跨过环边界"></div>
     </div>
     <div class="move-arrow" aria-hidden="true">──▶</div>
     <div class="ring-panel">
       <div class="ring-label">一种等价连续结果：head = 0</div>
-      <div class="ring-diagram" role="img" aria-label="make_contiguous 后的一种结果：head 在槽位 0，物理顺序与逻辑顺序都是 20 30 40">
-        <div class="ring-track" aria-hidden="true"></div>
-        <div class="ring-node used head tail" style="--x:50%;--y:14%"><span class="ring-node-index">[0]</span><span class="ring-node-value">20</span><span class="ring-node-logical">logical 0</span><span class="ring-flags"><span class="ring-flag head">H</span><span class="ring-flag tail">T</span></span></div>
-        <div class="ring-node used" style="--x:81.18%;--y:68%"><span class="ring-node-index">[1]</span><span class="ring-node-value">30</span><span class="ring-node-logical">logical 1</span></div>
-        <div class="ring-node used" style="--x:18.82%;--y:68%"><span class="ring-node-index">[2]</span><span class="ring-node-value">40</span><span class="ring-node-logical">logical 2</span></div>
-        <div class="ring-center"><strong>A 一段连续</strong><span>[20, 30, 40]</span><span>B = []</span></div>
-      </div>
+      <div class="ring-diagram" id="ringAfter" role="img" aria-label="make_contiguous 后的一种结果：head 在槽位 0，物理顺序与逻辑顺序都是 20 30 40"></div>
     </div>
   </div>
   <p class="note">返回的 <code>&amp;mut [T]</code> 在逻辑顺序上连续。标准库不承诺整理后 <code>head</code> 必须等于 0；上图只展示一种等价结果。</p>
@@ -884,6 +908,177 @@ contiguous.<span class="fn">sort</span>();    <span class="cm">// 需要一个�
     return [state.values.slice(0, firstLength), state.values.slice(firstLength)];
   }
 
+  const RING_VIEW = 208;
+  const RING_MID = 104;
+  const RING_OUTER = 86;
+  const RING_INNER = 53;
+  const RING_RADIUS_INDEX = 78;
+  const RING_RADIUS_VALUE = 67.5;
+  const RING_RADIUS_LOGICAL = 57.5;
+
+  function ringPolar(radius, angleDeg) {
+    const rad = (angleDeg * Math.PI) / 180;
+    return [RING_MID + radius * Math.cos(rad), RING_MID + radius * Math.sin(rad)];
+  }
+
+  function ringArcPath(radius, startDeg, endDeg, large) {
+    const [x0, y0] = ringPolar(radius, startDeg);
+    const [x1, y1] = ringPolar(radius, endDeg);
+    return `M ${x0.toFixed(2)} ${y0.toFixed(2)} A ${radius} ${radius} 0 ${large} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
+  }
+
+  function centerMarkup(lines) {
+    return `<div class="ring-center"><strong>${lines[0]}</strong>` +
+      lines.slice(1).map(line => `<span>${line}</span>`).join('') + '</div>';
+  }
+
+  function ringViewMarkup(slots, center) {
+    const cap = slots.length;
+    const wedgeDeg = 360 / cap;
+    const padDeg = Math.min(4, wedgeDeg * 0.05);
+    const large = wedgeDeg - padDeg * 2 > 180 ? 1 : 0;
+    const compact = cap > 6;
+    const dense = cap > 12;
+    const valueFont = cap <= 6 ? 11.5 : cap <= 12 ? 7 : 5.2;
+    const indexFont = compact ? 4.6 : 6.5;
+    const logicalFont = 6.2;
+    const letterFont = compact ? 5 : 6;
+    const parts = [`<svg class="ring-svg" viewBox="0 0 ${RING_VIEW} ${RING_VIEW}" aria-hidden="true" focusable="false">`];
+
+    slots.forEach((slot, physical) => {
+      const mid = -90 + physical * wedgeDeg;
+      const start = mid - wedgeDeg / 2 + padDeg;
+      const end = mid + wedgeDeg / 2 - padDeg;
+      const [ox0, oy0] = ringPolar(RING_OUTER, start);
+      const [ox1, oy1] = ringPolar(RING_OUTER, end);
+      const [in1x, in1y] = ringPolar(RING_INNER, end);
+      const [in0x, in0y] = ringPolar(RING_INNER, start);
+      const wedgePath =
+        `M ${ox0.toFixed(2)} ${oy0.toFixed(2)} A ${RING_OUTER} ${RING_OUTER} 0 ${large} 1 ${ox1.toFixed(2)} ${oy1.toFixed(2)}` +
+        ` L ${in1x.toFixed(2)} ${in1y.toFixed(2)}` +
+        ` A ${RING_INNER} ${RING_INNER} 0 ${large} 0 ${in0x.toFixed(2)} ${in0y.toFixed(2)} Z`;
+
+      const classes = ['ring-node', slot.used ? 'used' : 'free'];
+      if (slot.head) classes.push('head');
+      if (slot.tail) classes.push('tail');
+
+      const node = [`<g class="${classes.join(' ')}">`, `<path class="ring-wedge" d="${wedgePath}"/>`];
+      if (slot.head) node.push(`<path class="ring-arc head" d="${ringArcPath(RING_OUTER, start, end, large)}"/>`);
+      if (slot.tail) node.push(`<path class="ring-arc tail" d="${ringArcPath(RING_INNER, start, end, large)}"/>`);
+
+      if (!dense) {
+        const [bx, by] = ringPolar((RING_OUTER + RING_INNER) / 2, mid);
+        node.push(
+          `<text class="ring-node-index" x="${bx.toFixed(2)}" y="${(by - 11).toFixed(2)}" font-size="${indexFont}"` +
+          ` text-anchor="middle" dominant-baseline="central">[${physical}]</text>`
+        );
+
+        let valueText =
+          `<text class="ring-node-value" x="${bx.toFixed(2)}" y="${(by + 2.5).toFixed(2)}" font-size="${valueFont}"` +
+          ` text-anchor="middle" dominant-baseline="central"`;
+        if (dense) {
+          let deg = ((mid % 360) + 360) % 360;
+          if (deg > 90 && deg < 270) deg -= 180;
+          valueText += ` transform="rotate(${deg.toFixed(2)} ${bx.toFixed(2)} ${by.toFixed(2)})"`;
+        }
+        node.push(`${valueText}>${slot.used ? escapeText(slot.value) : '—'}</text>`);
+
+        if (!compact && slot.logical !== null && slot.logical !== undefined) {
+          node.push(
+            `<text class="ring-node-logical" x="${bx.toFixed(2)}" y="${(by + 14).toFixed(2)}" font-size="${logicalFont}"` +
+            ` text-anchor="middle" dominant-baseline="central">logical ${slot.logical}</text>`
+          );
+        }
+      } else {
+        const [vx, vy] = ringPolar(RING_RADIUS_VALUE, mid);
+        let deg = ((mid % 360) + 360) % 360;
+        if (deg > 90 && deg < 270) deg -= 180;
+        node.push(
+          `<text class="ring-node-value" x="${vx.toFixed(2)}" y="${vy.toFixed(2)}" font-size="${valueFont}"` +
+          ` text-anchor="middle" dominant-baseline="central"` +
+          ` transform="rotate(${deg.toFixed(2)} ${vx.toFixed(2)} ${vy.toFixed(2)})">${slot.used ? escapeText(slot.value) : '—'}</text>`
+        );
+      }
+
+      if (!dense) {
+        if (slot.head) {
+          const [hx, hy] = ringPolar(RING_OUTER + 6.5, mid);
+          node.push(
+            `<text class="ring-letter head" x="${hx.toFixed(2)}" y="${hy.toFixed(2)}" font-size="${letterFont}"` +
+            ` text-anchor="middle" dominant-baseline="central">H</text>`
+          );
+        }
+        if (slot.tail) {
+          const [tx, ty] = ringPolar(RING_INNER - 7.5, mid);
+          node.push(
+            `<text class="ring-letter tail" x="${tx.toFixed(2)}" y="${ty.toFixed(2)}" font-size="${letterFont}"` +
+            ` text-anchor="middle" dominant-baseline="central">T</text>`
+          );
+        }
+      }
+
+      node.push('</g>');
+      parts.push(node.join(''));
+    });
+
+    parts.push('</svg>');
+    return parts.join('') + center;
+  }
+
+  function mountStaticRings() {
+    const configs = [
+      {
+        id: 'ringInit',
+        slots: [
+          { used: true, head: true, tail: true, value: 10, logical: 0 },
+          { used: true, value: 20, logical: 1 },
+          { used: true, value: 30, logical: 2 }
+        ],
+        center: ['head = tail = 0', 'len 3 / cap 3', 'full']
+      },
+      {
+        id: 'ringPop',
+        slots: [
+          { used: false, tail: true },
+          { used: true, head: true, value: 20, logical: 0 },
+          { used: true, value: 30, logical: 1 }
+        ],
+        center: ['head 1 → tail 0', 'len 2 / cap 3', 'logical: 20, 30']
+      },
+      {
+        id: 'ringPush',
+        slots: [
+          { used: true, value: 40, logical: 2 },
+          { used: true, head: true, tail: true, value: 20, logical: 0 },
+          { used: true, value: 30, logical: 1 }
+        ],
+        center: ['head = tail = 1', 'len 3 / cap 3', 'logical: 20, 30, 40']
+      },
+      {
+        id: 'ringBefore',
+        slots: [
+          { used: true, value: 40, logical: 2 },
+          { used: true, head: true, tail: true, value: 20, logical: 0 },
+          { used: true, value: 30, logical: 1 }
+        ],
+        center: ['A + B', '[20, 30] + [40]', 'full']
+      },
+      {
+        id: 'ringAfter',
+        slots: [
+          { used: true, head: true, tail: true, value: 20, logical: 0 },
+          { used: true, value: 30, logical: 1 },
+          { used: true, value: 40, logical: 2 }
+        ],
+        center: ['A 一段连续', '[20, 30, 40]', 'B = []']
+      }
+    ];
+    configs.forEach(config => {
+      const el = document.getElementById(config.id);
+      if (el) el.innerHTML = ringViewMarkup(config.slots, centerMarkup(config.center));
+    });
+  }
+
   function render(message) {
     const logicalByPhysical = new Map();
     state.values.forEach((value, logicalIndex) => {
@@ -920,41 +1115,22 @@ contiguous.<span class="fn">sort</span>();    <span class="cm">// 需要一个�
     slotsEl.style.minWidth = `${Math.max(320, state.capacity * 80)}px`;
     slotsEl.innerHTML = slotMarkup.join('');
 
-    const ringMarkup = ['<div class="ring-track" aria-hidden="true"></div>'];
-    const ringNodeSize = Math.max(28, Math.min(72, Math.floor(560 / state.capacity)));
-    const ringRadius = state.capacity <= 6 ? 36 : 40;
+    const ringSlots = [];
     for (let physical = 0; physical < state.capacity; physical += 1) {
       const item = logicalByPhysical.get(physical);
-      const isHead = physical === state.head;
-      const isTail = physical === tail;
-      const angle = -Math.PI / 2 + (physical * Math.PI * 2) / state.capacity;
-      const x = 50 + ringRadius * Math.cos(angle);
-      const y = 50 + ringRadius * Math.sin(angle);
-      const classes = ['ring-node', item ? 'used' : 'free'];
-      if (isHead) classes.push('head');
-      if (isTail) classes.push('tail');
-      if (state.capacity > 6) classes.push('compact');
-      if (state.capacity > 12) classes.push('dense');
-
-      const flags = [];
-      if (isHead) flags.push('<span class="ring-flag head">H</span>');
-      if (isTail) flags.push('<span class="ring-flag tail">T</span>');
-
-      ringMarkup.push(
-        `<div class="${classes.join(' ')}" style="--x:${x.toFixed(2)}%;--y:${y.toFixed(2)}%;--node-size:${ringNodeSize}px">` +
-        `<span class="ring-node-index">[${physical}]</span>` +
-        `<span class="ring-node-value">${item ? escapeText(item.value) : '—'}</span>` +
-        (item ? `<span class="ring-node-logical">logical ${item.logicalIndex}</span>` : '') +
-        `<span class="ring-flags">${flags.join('')}</span>` +
-        '</div>'
-      );
+      ringSlots.push({
+        used: Boolean(item),
+        head: physical === state.head,
+        tail: physical === tail,
+        value: item ? item.value : '—',
+        logical: item ? item.logicalIndex : null
+      });
     }
-    ringMarkup.push(
-      `<div class="ring-center"><strong>head ${state.head} → tail ${tail}</strong>` +
-      `<span>len ${state.values.length} / cap ${state.capacity}</span>` +
-      `<span>${full ? 'full · push 先扩容' : `free ${state.capacity - state.values.length}`}</span></div>`
-    );
-    ringEl.innerHTML = ringMarkup.join('');
+    ringEl.innerHTML = ringViewMarkup(ringSlots, centerMarkup([
+      `head ${state.head} → tail ${tail}`,
+      `len ${state.values.length} / cap ${state.capacity}`,
+      full ? 'full · push 先扩容' : `free ${state.capacity - state.values.length}`
+    ]));
     ringEl.setAttribute(
       'aria-label',
       `VecDeque 环形视图：capacity ${state.capacity}，head ${state.head}，tail ${tail}，逻辑顺序 ${state.values.join(', ') || '空'}`
@@ -1073,6 +1249,7 @@ contiguous.<span class="fn">sort</span>();    <span class="cm">// 需要一个�
   });
 
   render();
+  mountStaticRings();
 })();
 </script>
 </body>
