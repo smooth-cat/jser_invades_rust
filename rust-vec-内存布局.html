@@ -657,7 +657,7 @@ hr { border: none; border-top: 1px solid #21262d; margin: 40px 0; }
     <div class="step"><div class="step-num">4</div><div class="step-text"><code>ptr::write(ptr.add(1), 99)</code> — 在空出的位置写入</div></div>
     <div class="step"><div class="step-num">5</div><div class="step-text"><code>self.len += 1</code></div></div>
   </div>
-  <p class="note">时间复杂度 O(n)：最坏情况需要移动所有后续元素。用 memmove 而非逐元素拷贝，因为 memmove 处理重叠区域且由 libc 高度优化（SIMD）。</p>
+  <p class="note">时间复杂度 O(n)：最坏情况需要转移所有后续元素。用 memmove 而非逐元素拷贝，因为 memmove 处理重叠区域且由 libc 高度优化（SIMD）。</p>
 </div>
 
 <hr>
@@ -791,7 +791,7 @@ v[<span class="num">2</span>] = <span class="num">99</span>;         <span class
   <p style="font-size:0.8rem; color:#8b949e; margin-bottom:8px;">v[2] = 99 的内存视角:</p>
   <div class="zone-heap">
     <div class="heap-block">
-      <div class="heap-title">直接写入，无移动</div>
+      <div class="heap-title">直接写入，无转移</div>
       <div class="heap-slots">
         <div class="heap-slot used"><span class="idx">[0]</span>10</div>
         <div class="heap-slot used"><span class="idx">[1]</span>20</div>
@@ -950,7 +950,7 @@ v[<span class="num">0</span>] = <span class="str">"world"</span>.<span class="fn
   <tr><td>扩容策略</td><td>×2</td><td>通常 ×2 (libstdc++) 或 ×1.5 (libc++/MSVC)</td></tr>
   <tr><td>越界访问</td><td>panic (可 catch)</td><td>UB (未定义行为)</td></tr>
   <tr><td>迭代时修改</td><td>编译期拒绝 (borrow checker)</td><td>UB (迭代器失效)</td></tr>
-  <tr><td>移动语义</td><td>默认 move, 旧变量不可用</td><td>需 std::move, 旧变量仍可用</td></tr>
+  <tr><td>转移语义</td><td>默认 move, 旧变量不可用</td><td>需 std::move, 旧变量仍可用</td></tr>
 </table>
 
 <hr>

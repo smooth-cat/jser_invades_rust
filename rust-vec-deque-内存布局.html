@@ -469,7 +469,7 @@ hr { margin: 44px 0; border: 0; border-top: 1px solid var(--surface-strong); }
 <span class="cm">// 数组的 3 个元素会被直接转移到 VecDeque 的堆缓冲区</span>
 <span class="kw">let mut</span> q = <span class="ty">VecDeque</span>::<span class="fn">from</span>([<span class="num">10_i32</span>, <span class="num">20</span>, <span class="num">30</span>]);
 
-<span class="cm">// 当前标准库实现: 分配 N 个槽位，整块复制/移动数组，head = 0, len = N</span>
+<span class="cm">// 当前标准库实现: 分配 N 个槽位，整块复制/转移数组，head = 0, len = N</span>
 <span class="cm">// 下图以 cap = 3 展示这个初始状态</span>
 <span class="cm">// 堆上元素区: 3 × size_of::&lt;i32&gt;() = 12 bytes</span></div>
 
@@ -743,7 +743,7 @@ q[<span class="num">2</span>] → slot[(<span class="num">1</span> + <span class
 
 <h3><code>insert(i, x)</code> 会选较短的一侧搬移</h3>
 
-<p><code>Vec</code> 中间插入只能移动后缀；<code>VecDeque</code> 可以在前缀和后缀中选较短的一边，将空洞从最近的端点搬到插入位置。</p>
+<p><code>Vec</code> 中间插入只能转移后缀；<code>VecDeque</code> 可以在前缀和后缀中选较短的一边，将空洞从最近的端点搬到插入位置。</p>
 
 <div class="memory-scene">
   <div class="move-diagram">

@@ -27,6 +27,8 @@ Rust 所有权、借用检查、生命周期标注, **目的：内存正确释�
 
 ## 所有权转移
 
+/Users/linjiajian/.rustup/toolchains/stable-aarch64-apple-darwin/lib/rustlib/src/rust/library/rtstartup/rsbegin.rs
+
 ### 两层含义
 
 1. 运行时：拷贝栈内存 memcpy

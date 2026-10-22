@@ -1,10 +1,10 @@
-use demo::fn_move;
-use demo::do_move;
 use demo::mut_rang;
-use demo::life_circle;
+use demo::ob_02_ownership;
+use demo::ob_03_fn_move;
+use demo::ob_05_life_circle;
 
 fn main() {
-  fn_move::demo();
+  ob_03_fn_move::demo();
   // do_move::do_move();
   // do_move::force_read();
   // mut_rang::demo();

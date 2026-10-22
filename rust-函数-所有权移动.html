@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Rust 函数所有权移动：栈帧与内存</title>
+<title>Rust 函数所有权转移：栈帧与内存</title>
 <style>
 :root {
   --bg: #0d1117;
@@ -331,7 +331,7 @@ strong { color: #f0f6fc; }
 .call-arrow small { display: block; color: var(--move); font-size: 0.61rem; line-height: 1.25; }
 .call-stack .frame + .frame { margin-top: 0; }
 
-/* 复制与移动的对照 */
+/* 复制与转移的对照 */
 .compare {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -374,17 +374,17 @@ strong { color: #f0f6fc; }
 </head>
 <body>
 <main class="wrap">
-  <h1>Rust 函数调用中的所有权移动</h1>
+  <h1>Rust 函数调用中的所有权转移</h1>
   <p class="sub">以 <code>src/fn_move.rs</code> 为例：观察 <code>s1 → s → s2</code> 的拥有者如何随着函数调用改变。</p>
 
-  <div class="model" aria-label="所有权移动的三个关键结论">
+  <div class="model" aria-label="所有权转移的三个关键结论">
     <div class="model-item">
-      <div class="model-label">移动的对象</div>
+      <div class="model-label">转移的对象</div>
       <div class="model-value">栈上的 String 结构</div>
       <div class="model-detail">ptr / len / cap 传到新栈槽</div>
     </div>
     <div class="model-item">
-      <div class="model-label">移动后的旧名字</div>
+      <div class="model-label">转移后的旧名字</div>
       <div class="model-value">不可再使用</div>
       <div class="model-detail">即使旧栈槽里还残留相同位模式</div>
     </div>
@@ -407,7 +407,7 @@ strong { color: #f0f6fc; }
 }</code></pre>
 
   <h2>先固定一个简化的内存模型</h2>
-  <p>下面把 <code>String</code> 拆成两部分来画：<strong>栈槽里的结构（<code>ptr / len / cap</code>）</strong>，以及它指向的堆资源。所有权移动的关键，正是这三个字段从旧绑定的栈槽传到新绑定的栈槽；<strong>堆上的字节只有一份</strong>。不展开创建、扩容或 <code>push_str</code> 的过程。</p>
+  <p>下面把 <code>String</code> 拆成两部分来画：<strong>栈槽里的结构（<code>ptr / len / cap</code>）</strong>，以及它指向的堆资源。所有权转移的关键，正是这三个字段从旧绑定的栈槽传到新绑定的栈槽；<strong>堆上的字节只有一份</strong>。不展开创建、扩容或 <code>push_str</code> 的过程。</p>
   <div class="memory-scene" role="img" aria-label="栈上的 String handle 指向堆上的唯一字节块">
     <div class="scene-caption"><strong>一个值 = 栈上的 String 结构 + 堆上的资源</strong><span>示意地址：H0（并非真实地址）</span></div>
     <div class="scene-code"><span>当前执行代码</span><code>let s1 = String::from("hello");</code></div>
@@ -461,7 +461,7 @@ strong { color: #f0f6fc; }
 
   <h3>② 按值传参：栈上的 <code>String</code> 结构从 <code>s1</code> 传到 <code>s</code></h3>
   <div class="memory-scene" role="img" aria-label="调用 do_move 时，s1 失效，do_move 栈帧的参数 s 成为 H0 的 owner">
-    <div class="scene-caption"><strong>执行 <code>do_move(s1)</code>：移动发生在参数边界</strong><span>两个栈帧同时存在；堆资源仍只有 H0 一份</span></div>
+    <div class="scene-caption"><strong>执行 <code>do_move(s1)</code>：转移发生在参数边界</strong><span>两个栈帧同时存在；堆资源仍只有 H0 一份</span></div>
     <div class="call-stack">
       <div class="frame">
         <div class="frame-title">demo 栈帧 · caller</div>
@@ -504,8 +504,8 @@ strong { color: #f0f6fc; }
     </div>
   </div>
 
-  <h3>③ 返回值再移动：<code>s</code> 交给 <code>s2</code>，callee 栈帧随后销毁</h3>
-  <div class="memory-scene" role="img" aria-label="do_move 返回时，s 移动给 s2，do_move 栈帧销毁，H0 由 s2 拥有">
+  <h3>③ 返回值再转移：<code>s</code> 交给 <code>s2</code>，callee 栈帧随后销毁</h3>
+  <div class="memory-scene" role="img" aria-label="do_move 返回时，s 转移给 s2，do_move 栈帧销毁，H0 由 s2 拥有">
     <div class="scene-caption"><strong>执行 <code>s</code> 返回并完成 <code>let s2 = ...</code></strong><span>返回值的所有权回到调用者</span></div>
     <div class="call-stack">
       <div class="frame">
@@ -543,7 +543,7 @@ strong { color: #f0f6fc; }
 
   <h2>把“栈内存变化”说准确</h2>
   <div class="note owner"><b>语义层面：</b><code>s1</code>、<code>s</code>、<code>s2</code> 是三个不同时刻的绑定名；owner 沿着 <code>s1 → s → s2</code> 传递，任意时刻都只有一个合法 owner。</div>
-  <div class="note"><b>栈槽层面：</b>在这张可观察的教学图里，<code>ptr / len / cap</code> 三个字段从 <code>&amp;s1</code> 所在的 caller 栈槽进入 <code>&amp;s</code> 所在的 callee 栈槽——这就是“栈上的 <code>String</code> 结构发生了移动”。实现可能用寄存器传递、复用栈槽，或把这次传递优化掉，因此不应把它理解成必然执行一次 <code>memcpy</code>。</div>
+  <div class="note"><b>栈槽层面：</b>在这张可观察的教学图里，<code>ptr / len / cap</code> 三个字段从 <code>&amp;s1</code> 所在的 caller 栈槽进入 <code>&amp;s</code> 所在的 callee 栈槽——这就是“栈上的 <code>String</code> 结构发生了转移”。实现可能用寄存器传递、复用栈槽，或把这次传递优化掉，因此不应把它理解成必然执行一次 <code>memcpy</code>。</div>
   <div class="note invalid"><b>旧栈槽层面：</b>move 之后，<code>s1</code> 的旧槽可以被覆盖、复用，甚至暂时保留原来的位模式；这些位不代表 <code>s1</code> 仍然可用。编译器只保证：代码不能再通过 <code>s1</code> 访问这份资源。</div>
 
   <div class="compare" aria-label="move 与 clone 的区别">
@@ -577,7 +577,7 @@ strong { color: #f0f6fc; }
     </tbody>
   </table>
 
-  <p class="footer">示意图针对 <code>src/fn_move.rs</code> 的所有权移动；地址、栈槽位置和调用约定均为教学简化。</p>
+  <p class="footer">示意图针对 <code>src/fn_move.rs</code> 的所有权转移；地址、栈槽位置和调用约定均为教学简化。</p>
 </main>
 </body>
 </html>

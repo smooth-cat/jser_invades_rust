@@ -597,10 +597,10 @@
   };
 
 <span class="hl-line">  <span class="kw">let</span> smart_ptr: <span class="ty">Box</span>&lt;<span class="kw">dyn</span> <span class="ty">TailAction</span>&gt; = <span class="ty">Box</span>::<span class="fn">new</span>(cat);</span>
-}  <span class="cm">// cat 已被「移动」进堆，栈上只剩 smart_ptr</span></pre>
+}  <span class="cm">// cat 已被「转移」进堆，栈上只剩 smart_ptr</span></pre>
 
   <div class="mem-grid" id="mem-smart" data-wires='[
-    {"from":"sp-data","fromSide":"right","to":"cat-box","toSide":"left","color":"heap","label":"data_ptr —— 指向堆上的 Cat（cat 已被移动）"},
+    {"from":"sp-data","fromSide":"right","to":"cat-box","toSide":"left","color":"heap","label":"data_ptr —— 指向堆上的 Cat（cat 已被转移）"},
     {"from":"cat-nameptr","fromSide":"bottom","to":"heap-bytes","toSide":"top","toX":0.22,"color":"heap","label":"name.ptr —— 指向字符串字节"},
     {"from":"sp-vt","fromSide":"bottom","to":"vtable-box","toSide":"top","toX":0.3,"color":"data","label":"vtable —— 指向函数表"},
     {"from":"vt-shake","fromSide":"bottom","to":"text-box","toSide":"top","toX":0.62,"color":"code","label":"vtable.shake_tail —— 跳进代码段"}
@@ -677,7 +677,7 @@
   </div>
 
   <div class="note" style="margin-top:14px">
-    <b>关键点：</b><code>Box::new(cat)</code> 把 <code>cat</code> 整体<b>移动</b>进堆——栈上从此只有 <code>smart_ptr</code> 这个胖指针
+    <b>关键点：</b><code>Box::new(cat)</code> 把 <code>cat</code> 整体<b>转移</b>进堆——栈上从此只有 <code>smart_ptr</code> 这个胖指针
     （<code>data_ptr</code> + <code>vtable</code>，16B），不能再通过 <code>cat</code> 访问它。
     数据要解两层引用（smart_ptr → 堆上的 Cat → 堆上的字节）；调用 <code>shake_tail</code> 时先查 vtable 拿到函数指针，再跳进 <code>.text</code> 执行——
     这就是 <code>dyn Trait</code> 动态分发的全部开销。drop 时按拥有关系层层释放：Box 释放 Cat，String 再释放字节缓冲。

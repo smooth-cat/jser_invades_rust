@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Rust 所有权移动后 · 栈/堆内存变化图解</title>
+<title>Rust 所有权转移后 · 栈/堆内存变化图解</title>
 <style>
 :root {
   --bg: #0d1117;
@@ -363,13 +363,13 @@ hr { margin: 48px 0; border: 0; border-top: 1px solid var(--surface-strong); }
 <body>
 <div class="container">
 
-<h1>Rust 所有权移动后 · 栈/堆内存变化</h1>
+<h1>Rust 所有权转移后 · 栈/堆内存变化</h1>
 <p class="subtitle">force_read() 函数执行全过程 — 逐步追踪每个变量在栈和堆中的真实状态</p>
 
 <nav class="timeline">
   <a href="#step1">① 创建 person</a>
   <a href="#step2">② 创建裸指针</a>
-  <a href="#step3">③ Move 移动</a>
+  <a href="#step3">③ Move 转移</a>
   <a href="#step4">④ 修改 person_2</a>
   <a href="#step5">⑤ ptr::read</a>
   <a href="#step6">⑥ mem::forget</a>
@@ -523,13 +523,13 @@ hr { margin: 48px 0; border: 0; border-top: 1px solid var(--surface-strong); }
 <hr>
 
 <!-- ═══════════════ STEP 3 ═══════════════ -->
-<h2 id="step3">③ Move 移动：let mut person_2 = person</h2>
+<h2 id="step3">③ Move 转移：let mut person_2 = person</h2>
 <div class="code-block">
 <span class="highlight"><span class="kw">let mut</span> person_2 = person;</span>  <span class="comment">// Move 语义</span>
 </div>
 
 <p>Rust 的 move 在底层就是 <strong>memcpy</strong>：把 person 的 32 字节原样复制到 person_2 的栈空间。堆上的 "John" <strong>没有任何变化</strong>，不会重新分配。</p>
-<p>编译器在类型系统层面标记 person 为「已移动」，禁止后续安全代码访问它——但<strong>物理内存中的比特纹丝不动</strong>。</p>
+<p>编译器在类型系统层面标记 person 为「已转移」，禁止后续安全代码访问它——但<strong>物理内存中的比特纹丝不动</strong>。</p>
 
 <div class="mem-diagram">
   <span class="step-badge">STEP 3</span>

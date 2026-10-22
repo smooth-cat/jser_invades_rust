@@ -1,0 +1,1087 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rust 内存安全：悬垂指针与 ptr::read 误读（调用帧动画）</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --surface-2: #21262d;
+  --surface-3: #0a0e14;
+  --border: #30363d;
+  --text: #e6edf3;
+  --muted: #8b949e;
+  --faint: #6e7681;
+  --stack: #58a6ff;
+  --stack-soft: rgba(88, 166, 255, 0.12);
+  --heap: #d2a8ff;
+  --heap-soft: rgba(210, 168, 255, 0.12);
+  --move: #ffa657;
+  --move-soft: rgba(255, 166, 87, 0.12);
+  --owner: #7ee787;
+  --owner-soft: rgba(126, 231, 135, 0.12);
+  --invalid: #f85149;
+  --invalid-soft: rgba(248, 81, 73, 0.11);
+  --code: "SF Mono", "JetBrains Mono", "Fira Code", Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  padding: 40px 20px 72px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  line-height: 1.7;
+}
+.wrap { width: min(1240px, 100%); margin: 0 auto; }
+h1 { margin: 0 0 8px; color: var(--stack); font-size: clamp(1.6rem, 3vw, 2.1rem); line-height: 1.3; }
+h2 { margin: 46px 0 14px; padding-left: 12px; border-left: 3px solid var(--move); color: var(--move); font-size: 1.3rem; }
+h3 { margin: 24px 0 10px; color: var(--stack); font-size: 1.02rem; }
+p { margin: 10px 0; }
+.sub { margin: 0 0 26px; color: var(--muted); }
+.mono, code, pre { font-family: var(--code); }
+code {
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: #79c0ff;
+  font-size: 0.9em;
+}
+strong { color: #f0f6fc; }
+.note {
+  margin: 18px 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--move);
+  border-radius: 7px;
+  background: var(--surface);
+}
+.note b { color: var(--move); }
+.note.owner { border-left-color: var(--owner); }
+.note.owner b { color: var(--owner); }
+.note.invalid { border-left-color: var(--invalid); }
+.note.invalid b { color: var(--invalid); }
+.footer { margin-top: 48px; color: var(--faint); font-size: 0.75rem; text-align: center; }
+
+/* ───────── 关键事实卡 ───────── */
+.facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 20px 0 10px; }
+.fact {
+  padding: 13px 15px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.fact-label { color: var(--muted); font-size: 0.76rem; }
+.fact-value { margin-top: 4px; color: var(--stack); font-weight: 700; font-family: var(--code); font-size: 0.86rem; }
+.fact-detail { margin-top: 3px; color: var(--faint); font-size: 0.76rem; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 4px; }
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.73rem;
+}
+.chip i { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+.chip i.stack { background: var(--stack); }
+.chip i.heap { background: var(--heap); }
+.chip i.owner { background: var(--owner); }
+.chip i.move { background: var(--move); }
+.chip i.invalid { background: transparent; border: 2px dashed var(--invalid); }
+.chip i.freed { background: transparent; border: 2px dashed var(--heap); }
+.chip i.invalid { border-style: dashed; }
+
+/* ───────── 左右布局：代码 | 动画 ───────── */
+.split { display: grid; grid-template-columns: minmax(360px, 0.92fr) minmax(0, 1.08fr); gap: 22px; align-items: start; margin-top: 22px; }
+
+.code-panel {
+  position: sticky;
+  top: 16px;
+  max-height: calc(100vh - 30px);
+  overflow: auto;
+  padding: 14px 6px 12px 2px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-3);
+  scrollbar-width: thin;
+}
+.code-panel::-webkit-scrollbar { width: 8px; }
+.code-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+.code-title { padding: 0 14px 10px; color: var(--muted); font-size: 0.76rem; }
+.code-title b { color: var(--stack); }
+.code-line {
+  position: relative;
+  padding: 0 10px 0 44px;
+  border-left: 3px solid transparent;
+  font-family: var(--code);
+  font-size: 0.76rem;
+  line-height: 1.9;
+  white-space: pre;
+}
+.code-line .ln {
+  position: absolute;
+  left: 8px;
+  width: 24px;
+  color: var(--faint);
+  font-size: 0.66rem;
+  text-align: right;
+  user-select: none;
+}
+.code-line .kw { color: #ff7b72; }
+.code-line .ty { color: #79c0ff; }
+.code-line .fn { color: #d2a8ff; }
+.code-line .str { color: #a5d6ff; }
+.code-line .cm { color: var(--faint); }
+.code-line .mcr { color: #ffa657; }
+.code-line.danger-line .ln { color: #ffa657; }
+.code-line .warn-flag { margin-left: 10px; color: #ffa657; font-size: 0.62rem; opacity: 0.75; }
+.code-line.current {
+  border-left-color: var(--move);
+  background: var(--move-soft);
+}
+.code-line.current.danger-line { border-left-color: var(--invalid); background: var(--invalid-soft); }
+.code-line.flash-danger {
+  border-left-color: var(--invalid);
+  background: var(--invalid-soft);
+  animation: linePulse 1.4s ease-in-out infinite alternate;
+}
+@keyframes linePulse { from { background: rgba(248, 81, 73, 0.16); } to { background: rgba(248, 81, 73, 0.34); } }
+.code-hint { padding: 12px 14px 0; color: var(--faint); font-size: 0.72rem; }
+
+/* ───────── 动画列 ───────── */
+.anim-col { min-width: 0; }
+.anim-card {
+  padding: 15px 16px 17px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+}
+.controls {
+  position: sticky;
+  top: 14px;
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 13px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.42);
+}
+.btn {
+  padding: 6px 13px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-3);
+  color: var(--text);
+  font-size: 0.79rem;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, transform 0.1s;
+}
+.btn:hover { border-color: var(--stack); background: var(--stack-soft); }
+.btn:active { transform: translateY(1px); }
+.btn.primary { border-color: var(--move); color: var(--move); background: var(--move-soft); }
+.btn.primary:hover { background: rgba(255, 166, 87, 0.22); }
+.btn.ghost { color: var(--muted); }
+.btn:disabled { opacity: 0.4; cursor: default; }
+.btn:disabled:hover { border-color: var(--border); background: var(--surface-3); }
+.stepbar { display: flex; align-items: center; gap: 12px; margin-left: 4px; min-width: 0; }
+.stepbar-label { color: var(--muted); font-size: 0.78rem; white-space: nowrap; }
+.stepbar-label b { color: var(--text); }
+.dots { display: flex; gap: 6px; margin-left: auto; }
+.dot {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface-3);
+  color: var(--muted);
+  font-family: var(--code);
+  font-size: 0.65rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.dot:hover { border-color: var(--stack); color: var(--stack); }
+.dot.done { border-color: var(--faint); color: var(--faint); }
+.dot.active { border-color: var(--move); background: var(--move-soft); color: var(--move); font-weight: 700; }
+
+/* ───────── 内存舞台 ───────── */
+.stage {
+  position: relative;
+  padding: 8px 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-3);
+  overflow-x: auto;
+}
+.stage-grid { display: grid; grid-template-columns: minmax(300px, 1fr) minmax(215px, 0.6fr); gap: 24px; align-items: start; }
+.arrow-layer { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 10; pointer-events: none; }
+.region-label {
+  margin: 2px 0 9px;
+  color: var(--muted);
+  font-family: var(--code);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.region-label.stack-label { color: var(--stack); }
+.region-label.heap-label { color: var(--heap); }
+.frame {
+  overflow: hidden;
+  border: 2px solid var(--stack);
+  border-radius: 7px;
+  background: var(--surface);
+  transition: border-color 0.3s, opacity 0.3s;
+}
+.frame + .frame { margin-top: 16px; }
+.frame-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  padding: 6px 12px;
+  background: var(--stack-soft);
+  color: var(--stack);
+  font-family: var(--code);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+.frame-title small { color: var(--muted); font-size: 0.66rem; font-weight: 400; }
+.reuse-chip {
+  padding: 0 8px;
+  border: 1px dashed var(--invalid);
+  border-radius: 999px;
+  color: var(--invalid);
+  font-size: 0.64rem;
+  font-weight: 400;
+  white-space: nowrap;
+}
+.frame.ghost { border-style: dashed; border-color: #484f58; opacity: 0.62; }
+.frame.ghost .frame-title { background: rgba(110, 118, 129, 0.12); color: var(--muted); text-decoration: line-through; }
+.frame-ghost-note {
+  padding: 6px 12px 9px;
+  color: var(--faint);
+  font-size: 0.68rem;
+  text-align: center;
+}
+.stack-slot {
+  display: grid;
+  grid-template-columns: 108px minmax(0, 1fr);
+  border-top: 1px solid var(--border);
+  font-family: var(--code);
+  font-size: 0.72rem;
+}
+.stack-slot .slot-name {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 7px 9px;
+  border-right: 1px solid var(--border);
+  background: var(--surface-2);
+  color: #79c0ff;
+  font-weight: 700;
+  line-height: 1.35;
+}
+.slot-addr { color: var(--faint); font-size: 0.6rem; font-weight: 400; }
+.stack-slot .slot-value { padding: 8px 10px; color: var(--text); overflow-wrap: anywhere; }
+.slot-value.stack-p { color: var(--stack); }
+.slot-value.heap-p { color: var(--heap); }
+.slot-value.sus { color: var(--move); text-decoration: underline dashed; text-underline-offset: 3px; }
+.slot-value.dangling { color: var(--invalid); text-decoration: underline dashed; text-underline-offset: 3px; }
+.slot-value.dim { color: var(--faint); text-decoration: line-through; }
+.slot-value.recv { animation: recvFlash 1.6s ease-out both; }
+@keyframes recvFlash {
+  0% { background: var(--move-soft); box-shadow: 0 0 0 2px var(--move); }
+  70% { background: var(--move-soft); box-shadow: 0 0 0 2px var(--move); }
+  100% { background: transparent; box-shadow: none; }
+}
+.slot-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; padding: 7px 9px; }
+.field {
+  padding: 5px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-2);
+  line-height: 1.35;
+  text-align: center;
+}
+.field span { display: block; color: var(--faint); font-size: 0.58rem; }
+.field b { color: var(--text); font-size: 0.7rem; }
+.field.ptr b { color: var(--heap); }
+.field.cap b, .field.len b { color: #79c0ff; }
+.field.copied { border-color: var(--move); background: var(--move-soft); }
+.field.forgotten { opacity: 0.5; }
+.stack-direction { margin-top: 7px; color: var(--faint); font-size: 0.68rem; text-align: right; }
+.stack-slot.dim .slot-name { color: var(--faint); }
+.stack-slot.dim .slot-name .slot-addr { color: #484f58; }
+.stack-slot.dim .slot-value { color: var(--faint) !important; text-decoration: line-through; }
+.stack-slot.dim .field { background: transparent; opacity: 0.75; }
+.stack-slot.dim .field b { color: var(--faint) !important; text-decoration: line-through; }
+.pop-in { animation: popIn 0.45s ease both; }
+@keyframes popIn { from { opacity: 0; transform: translateY(7px) scale(0.985); } to { opacity: 1; transform: none; } }
+
+/* ───────── 堆块 ───────── */
+.heap-block {
+  overflow: hidden;
+  border: 2px solid var(--heap);
+  border-radius: 7px;
+  background: var(--surface);
+  transition: border-color 0.3s;
+}
+.heap-block + .heap-block { margin-top: 14px; }
+.heap-title {
+  padding: 6px 12px;
+  background: var(--heap-soft);
+  color: var(--heap);
+  font-family: var(--code);
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-align: center;
+}
+.heap-body { padding: 10px 11px 12px; }
+.heap-block.dual { border-color: var(--move); }
+.heap-block.dual .heap-title { background: var(--move-soft); color: var(--move); }
+.heap-block.freed { border-style: dashed; border-color: var(--invalid); opacity: 0.75; }
+.heap-block.freed .heap-title { background: var(--invalid-soft); color: var(--invalid); text-decoration: line-through; }
+.heap-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  border: 1px solid var(--heap);
+  border-radius: 4px;
+  background: var(--heap-soft);
+  color: var(--heap);
+  font-family: var(--code);
+  font-size: 0.86rem;
+}
+.heap-block.freed .heap-cell { border-color: var(--invalid); background: var(--invalid-soft); color: var(--invalid); }
+.heap-meta { margin-top: 7px; color: var(--faint); font-family: var(--code); font-size: 0.65rem; text-align: center; }
+.owner-chip {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 2px 9px;
+  border: 1px solid var(--owner);
+  border-radius: 999px;
+  color: var(--owner);
+  font-family: var(--code);
+  font-size: 0.63rem;
+  text-align: center;
+  background: var(--owner-soft);
+}
+.owner-chip.second { border-color: var(--move); color: var(--move); background: var(--move-soft); }
+.owner-chip.borrowed { border-color: var(--invalid); color: var(--invalid); background: var(--invalid-soft); text-decoration: line-through; }
+.heap-empty {
+  padding: 22px 12px;
+  border: 1px dashed var(--border);
+  color: var(--faint);
+  font-family: var(--code);
+  font-size: 0.72rem;
+  text-align: center;
+}
+
+/* ───────── 箭头 ───────── */
+.lnk { fill: none; stroke-width: 2; }
+.lnk.stack { stroke: var(--stack); }
+.lnk.heap { stroke: var(--heap); }
+.lnk.owner { stroke: var(--owner); }
+.lnk.copy { stroke: var(--move); }
+.lnk.dangling { stroke: var(--invalid); stroke-dasharray: 6 5; animation: dashPulse 0.9s infinite alternate; }
+@keyframes dashPulse { from { opacity: 0.95; } to { opacity: 0.4; } }
+.lnk.copy-dash { stroke: var(--move); stroke-dasharray: 3 4; opacity: 0.85; }
+/* 箭头头部：显式三角形，与线同色 */
+.lnk-h { stroke: none; }
+.lnk-h.stack { fill: var(--stack); }
+.lnk-h.heap { fill: var(--heap); }
+.lnk-h.owner { fill: var(--owner); }
+.lnk-h.copy, .lnk-h.copy-dash { fill: var(--move); }
+.lnk-h.dangling { fill: var(--invalid); }
+
+/* ───────── 输出面板 ───────── */
+.console { margin-top: 13px; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
+.console-bar {
+  padding: 5px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-family: var(--code);
+  font-size: 0.66rem;
+}
+.console pre { margin: 0; padding: 10px 13px; color: var(--owner); font-size: 0.8rem; white-space: pre-wrap; }
+.console-warn {
+  padding: 8px 13px 11px;
+  border-top: 1px dashed var(--invalid);
+  color: var(--invalid);
+  font-size: 0.74rem;
+}
+
+/* ───────── 解说卡 ───────── */
+.narration {
+  margin-top: 13px;
+  padding: 13px 15px 15px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--stack);
+  border-radius: 7px;
+  background: var(--surface);
+}
+.narration.risky { border-left-color: var(--invalid); }
+.narration.warny { border-left-color: var(--move); }
+.narration.safe { border-left-color: var(--owner); }
+.narr-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.narr-title { color: var(--text); font-weight: 700; font-size: 0.92rem; }
+.sev {
+  padding: 1px 9px;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.sev.green { border: 1px solid var(--owner); color: var(--owner); }
+.sev.red { border: 1px solid var(--invalid); color: var(--invalid); }
+.sev.amber { border: 1px solid var(--move); color: var(--move); }
+.sev.blue { border: 1px solid var(--stack); color: var(--stack); }
+.narr-text { margin: 8px 0 0; color: var(--muted); font-size: 0.84rem; }
+.narr-text b { color: var(--text); }
+.narr-text code { color: #79c0ff; }
+.narr-text ul { margin: 7px 0 0; padding-left: 20px; }
+.narr-text li { margin: 4px 0; }
+.narr-text li b { color: var(--invalid); }
+.narr-text li.bad b { color: var(--move); }
+
+/* ───────── 响应式 ───────── */
+.no-anim *, .no-anim *::before, .no-anim *::after { animation: none !important; transition: none !important; }
+@media (max-width: 980px) {
+  .split { grid-template-columns: 1fr; }
+  .code-panel { position: static; max-height: none; }
+  .stage { padding-right: 58px; }
+  .stage-grid { grid-template-columns: 1fr; gap: 30px; }
+  .facts { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) {
+  body { padding: 26px 12px 56px; }
+  .stack-slot { grid-template-columns: 92px minmax(0, 1fr); }
+  .dots { display: none; }
+}
+</style>
+</head>
+<body>
+<main class="wrap">
+
+<h1>Rust 内存安全：<code>ptr::read</code> 与悬垂指针的误读现场</h1>
+<p class="sub">指针逃逸调用帧 → 栈帧内存被下一个调用复用 → 按位拷贝读出“别人的数据”。对应源码 <code>src/ob_01_unsafe.rs</code>，右侧动画支持单步 / 自动播放，逐步观察每个关键执行点的内存布局。</p>
+
+<div class="facts">
+  <div class="fact">
+    <div class="fact-label">结构体大小</div>
+    <div class="fact-value">Person = 24 字节</div>
+    <div class="fact-detail">只有 <code>name: String</code>：栈上 (ptr, cap, len) 各 8 字节，内容在堆上。</div>
+  </div>
+  <div class="fact">
+    <div class="fact-label">关键动作</div>
+    <div class="fact-value">ptr::read::&lt;Person&gt;(p)</div>
+    <div class="fact-detail">把 p 指向的 24 字节<b>按位拷贝</b>一份：不查借用、不查有效性、不清空原数据。</div>
+  </div>
+  <div class="fact">
+    <div class="fact-label">问题的起点</div>
+    <div class="fact-value">return a_ptr</div>
+    <div class="fact-detail">返回指向 a 调用帧的指针。栈帧弹出后，地址值还在，内存已不属于任何人。</div>
+  </div>
+</div>
+
+<div class="legend">
+  <span class="chip"><i class="stack"></i>栈内指针</span>
+  <span class="chip"><i class="heap"></i>堆内指针</span>
+  <span class="chip"><i class="owner"></i>合法持有</span>
+  <span class="chip"><i class="move"></i>按位拷贝 / 可疑</span>
+  <span class="chip"><i class="invalid"></i>悬垂指针（红虚线）</span>
+  <span class="chip"><i class="freed"></i>已释放内存（虚线框）</span>
+</div>
+
+<section class="split" id="workbench">
+
+  <div class="code-panel" aria-label="被动画演示的 Rust 源代码">
+    <div class="code-title"><b>src/ob_01_unsafe.rs</b> · 当前执行行随动画联动</div>
+    <div class="code-line" data-n="1"><span class="ln">1</span><span class="kw">fn</span> <span class="fn">demo</span>() {</div>
+    <div class="code-line" data-n="2"><span class="ln">2</span>  <span class="cm">// 生成一个占位符让 a, b 函数结构一致</span></div>
+    <div class="code-line" data-n="3"><span class="ln">3</span>  <span class="kw">let</span> count = <span class="ty">0</span>;</div>
+    <div class="code-line" data-n="4"><span class="ln">4</span>  <span class="kw">let</span> placeholder = &amp;count <span class="kw">as</span> *<span class="kw">const</span> <span class="ty">i32</span>;</div>
+    <div class="code-line" data-n="5"><span class="ln">5</span></div>
+    <div class="code-line" data-n="6"><span class="ln">6</span>  <span class="cm">// 执行 a 获取一个指针</span></div>
+    <div class="code-line" data-n="7"><span class="ln">7</span>  <span class="kw">let</span> a_ptr = <span class="fn">a</span>(placeholder);</div>
+    <div class="code-line" data-n="8"><span class="ln">8</span></div>
+    <div class="code-line" data-n="9"><span class="ln">9</span>  <span class="cm">// 执行 b 读取指针指向的数据</span></div>
+    <div class="code-line" data-n="10"><span class="ln">10</span>  <span class="fn">b</span>(a_ptr);</div>
+    <div class="code-line" data-n="11"><span class="ln">11</span>}</div>
+    <div class="code-line" data-n="12"><span class="ln">12</span></div>
+    <div class="code-line" data-n="13"><span class="ln">13</span><span class="kw">fn</span> <span class="fn">a</span>(placeholder: *<span class="kw">const</span> <span class="ty">i32</span>) -&gt; *<span class="kw">const</span> <span class="ty">Person</span> {</div>
+    <div class="code-line" data-n="14"><span class="ln">14</span>  <span class="kw">let</span> person = <span class="ty">Person</span> { name: <span class="ty">String</span>::<span class="fn">from</span>(<span class="str">"a"</span>) };</div>
+    <div class="code-line" data-n="15"><span class="ln">15</span>  <span class="kw">let</span> a_ptr = &amp;person <span class="kw">as</span> *<span class="kw">const</span> <span class="ty">Person</span>;</div>
+    <div class="code-line" data-n="16"><span class="ln">16</span>  <span class="cm">// 返回指向 a 调用帧的指针</span></div>
+    <div class="code-line danger-line" data-n="17"><span class="ln">17</span>  <span class="kw">return</span> a_ptr;<span class="warn-flag">⚠ 指针逃逸调用帧</span></div>
+    <div class="code-line" data-n="18"><span class="ln">18</span>}</div>
+    <div class="code-line" data-n="19"><span class="ln">19</span></div>
+    <div class="code-line" data-n="20"><span class="ln">20</span><span class="kw">fn</span> <span class="fn">b</span>(a_ptr: *<span class="kw">const</span> <span class="ty">Person</span>) {</div>
+    <div class="code-line" data-n="21"><span class="ln">21</span>  <span class="kw">let</span> person = <span class="ty">Person</span> { name: <span class="ty">String</span>::<span class="fn">from</span>(<span class="str">"b"</span>) };</div>
+    <div class="code-line" data-n="22"><span class="ln">22</span>  <span class="kw">unsafe</span> {</div>
+    <div class="code-line" data-n="23"><span class="ln">23</span>    <span class="cm">// 从 a_ptr 读出数据</span></div>
+    <div class="code-line danger-line" data-n="24"><span class="ln">24</span>    <span class="kw">let</span> maybe = <span class="ty">ptr</span>::<span class="mcr">read</span>::&lt;<span class="ty">Person</span>&gt;(a_ptr);<span class="warn-flag">⚠ 按位读悬垂地址</span></div>
+    <div class="code-line" data-n="25"><span class="ln">25</span>    <span class="ty">println</span>!(<span class="str">"人是：{:?}"</span>, maybe);</div>
+    <div class="code-line danger-line" data-n="26"><span class="ln">26</span>    <span class="ty">mem</span>::<span class="fn">forget</span>(maybe);<span class="warn-flag">⚠ 打破 RAII</span></div>
+    <div class="code-line" data-n="27"><span class="ln">27</span>  }</div>
+    <div class="code-line" data-n="28"><span class="ln">28</span>}</div>
+    <div class="code-hint">⚠ 三处 <b>danger 行</b>：指针逃逸 · 按位误读 · forget 丢所有权。动画步进时当前行会高亮并自动滚动。</div>
+  </div>
+
+  <div class="anim-col">
+    <div class="anim-card">
+
+      <div class="controls">
+        <button class="btn" id="btnPrev" type="button" aria-label="上一步">⏮ 上一步</button>
+        <button class="btn primary" id="btnPlay" type="button" aria-label="自动播放">▶ 自动播放</button>
+        <button class="btn" id="btnNext" type="button" aria-label="下一步">⏭ 下一步</button>
+        <button class="btn ghost" id="btnReset" type="button" aria-label="重置">↺ 重置</button>
+        <div class="stepbar">
+          <div class="stepbar-label" id="stepLabel"><b>第 1 / 9 步</b></div>
+          <div class="dots" id="dots"></div>
+        </div>
+      </div>
+
+      <div class="stage" id="stage">
+        <svg class="arrow-layer" id="arrowLayer"></svg>
+        <div class="stage-grid" id="stageGrid"></div>
+      </div>
+
+      <div class="console" id="console" hidden>
+        <div class="console-bar">cargo run · 程序输出</div>
+        <pre id="consoleOut"></pre>
+        <div class="console-warn" id="consoleWarn"></div>
+      </div>
+
+      <div class="narration" id="narration">
+        <div class="narr-head">
+          <div class="narr-title" id="narrTitle"></div>
+          <span class="sev green" id="narrSev"></span>
+        </div>
+        <div class="narr-text" id="narrText"></div>
+      </div>
+
+    </div>
+  </div>
+
+</section>
+
+<h2>回看：为什么编译器一个警告都不给？</h2>
+<div class="note invalid">
+  <b>unsafe 只关闭了警报，没有把未定义行为变成合法行为。</b>
+  裸指针 <code>*const T</code> 不携带生命周期信息，类型系统无法知道 <code>0x7ff198</code> 背后的栈帧已经消亡；
+  <code>ptr::read</code> 的契约是“由调用者保证有效性”，于是责任从编译器转移到了程序员头上。
+  本例同时踩了三条线：<b>读悬垂指针</b>、<b>凭空制造第二份 Person 导致堆资源双重持有</b>、<b>mem::forget 打破 RAII 析构链</b>。
+</div>
+<div class="note owner">
+  <b>图中的“b 复用 a 的栈地址”是最典型的情形，但不是保证。</b>
+  真实运行中 b 的帧是否恰好落在同一片地址取决于编译器布局与调用约定；而且 UB 允许编译器假设“它不会发生”，release 构建甚至可能把整段读取优化掉。
+  用 Miri 直接验证：<code>cargo +nightly miri ob_01_unsafe</code>（或跑对应测试）会立即报出 Undefined Behavior，指出对已消亡栈帧内地址的读取。
+</div>
+
+<p class="footer">Rust learning notes · 对应源码 src/ob_01_unsafe.rs · 2026-10-17</p>
+
+</main>
+
+<script>
+(() => {
+  'use strict';
+
+  /* ───────── 数据工厂 ───────── */
+  const sv = (name, val, addr, cls) => ({ kind: 'simple', name, val, addr, cls: cls || '' });
+  const sp = (name, addr, ptr, ptrCls, cap, len, fieldCls, rowCls) =>
+    ({ kind: 'person', name, addr, ptr, ptrCls, cap: cap || '1', len: len || '1', fieldCls: fieldCls || '', rowCls: rowCls || '' });
+  const fr = (id, title, range, slots, ghost, reuse) =>
+    ({ id, title, range, slots, ghost: !!ghost, reuse: reuse || '' });
+  const hb = (id, title, addr, byte, owners, state) => ({ id, title, addr, byte, owners, state });
+
+  const demoFrame = (aPtrState) => {
+    const slots = [
+      sv('count', '0', '0x7ff1e0', ''),
+      sv('placeholder', '0x7ff1e0', '0x7ff1d8', 'stack-p')
+    ];
+    if (aPtrState) slots.push(sv('a_ptr', '0x7ff198', '0x7ff1d0', aPtrState));
+    return fr('demo', 'demo() 调用帧', '0x7ff1d0 – 0x7ff1e4', slots);
+  };
+
+  const aFrameLive = () => fr('a', 'a() 调用帧', '0x7ff190 – 0x7ff1c7', [
+    sv('placeholder', '0x7ff1e0', '0x7ff1c0', 'stack-p'),
+    sp('person', '0x7ff198', '0x5580e0', 'heap-p', '1', '1'),
+    sv('a_ptr', '0x7ff198', '0x7ff190', 'stack-p')
+  ]);
+
+  const aFrameGhost = () => fr('a', 'a() 调用帧', '0x7ff190 – 0x7ff1c7', [
+    sv('placeholder', '0x7ff1e0', '0x7ff1c0', 'dim'),
+    sp('person', '0x7ff198', '0x5580e0', 'heap-p', '1', '1', '', 'dim'),
+    sv('a_ptr', '0x7ff198', '0x7ff190', 'dim')
+  ], true);
+
+  const bFrameLive = (maybeFieldCls) => {
+    const slots = [
+      sv('a_ptr', '0x7ff198', '0x7ff1c0', 'sus'),
+      sp('person', '0x7ff198', '0x5580e0', 'heap-p', '1', '1')
+    ];
+    if (maybeFieldCls) slots.push(
+      sp('maybe', '0x7ff178', '0x5580e0', 'copy', '1', '1', maybeFieldCls)
+    );
+    return fr('b', 'b() 调用帧', '0x7ff178 – 0x7ff1c7', slots, false,
+      maybeFieldCls ? 'person 落位 0x7ff198 · 与 a 的 person 同址' : '与 a() 调用帧完全重叠');
+  };
+
+  const bFrameGhost = () => fr('b', 'b() 调用帧', '0x7ff178 – 0x7ff1c7', [
+    sv('a_ptr', '0x7ff198', '0x7ff1c0', 'dim'),
+    sp('person', '0x7ff198', '0x5580e0', 'heap-p', '1', '1', '', 'dim'),
+    sp('maybe', '0x7ff178', '0x5580e0', 'copy', '1', '1', '', 'dim')
+  ], true);
+
+  const heapA = (state, owners) => hb('A', 'String "a" 的堆缓冲区', '0x5580e0', 'a',
+    owners || [{ label: '持有者 a.person（ptr = 0x7ff198）', cls: '' }], state);
+  const heapB = (state, owners) => hb('B', 'String "b" 的堆缓冲区', '0x5580e0', 'b', owners, state);
+
+  const CONSOLE_OUT = '人是：Person { name: "b" }';
+
+  const STEPS = [
+    {
+      code: [4],
+      enter: [],
+      frames: [demoFrame(null)],
+      heap: [],
+      arrows: [{ f: 'demo:placeholder', t: 'demo:count', c: 'stack' }],
+      console: null,
+      narr: {
+        sev: ['安全', 'green'], risky: 'safe',
+        title: 'demo 帧建立：占位符就位',
+        html: '<p>demo 自己的帧里有 <code>count = 0</code>。<code>placeholder</code> 只是 <code>&amp;count</code> 的裸指针，值为 <code>0x7ff1e0</code>——它本身完全合法，函数 a、b 都拿它当“参数摆设”，只为让两个函数结构一致。</p>'
+      }
+    },
+    {
+      code: [15],
+      enter: ['frame:a', 'heap:A'],
+      frames: [demoFrame(null), aFrameLive()],
+      heap: [heapA('ok')],
+      arrows: [
+        { f: 'demo:placeholder', t: 'demo:count', c: 'stack' },
+        { f: 'a:placeholder', t: 'demo:count', c: 'stack' },
+        { f: 'a:person:ptr', t: 'heap:A', c: 'heap' },
+        { f: 'a:a_ptr', t: 'a:person', c: 'stack' }
+      ],
+      console: null,
+      narr: {
+        sev: ['安全', 'green'], risky: 'safe',
+        title: '调用 a：person 建在 a 自己的栈帧上',
+        html: '<p>a 的帧压栈后，<code>person { name: String::from("a") }</code> 在 a 帧内成形：栈上 24 字节（ptr / cap / len），ptr 指向堆缓冲区 <code>0x5580e0</code>。</p><p><code>a_ptr = &amp;person</code>，值为 <code>0x7ff198</code>——指向 a 自己帧里的 person。此刻一切合法：指针的作用域仍被借用检查“圈”在 a 帧之内。</p><p>小注：本页槽位按“先声明、地址更高”的惯例排画（demo 帧同此）；编译器对帧内变量的具体位置不做顺序保证，此处取最常见情形，不影响逻辑。</p>'
+      }
+    },
+    {
+      code: [18],
+      enter: ['slot:demo:a_ptr'],
+      frames: [demoFrame('dangling recv'), aFrameGhost()],
+      heap: [heapA('freed', [{ label: '已释放 · a.person 的 drop 已执行', cls: 'borrowed' }])],
+      arrows: [
+        { f: 'demo:placeholder', t: 'demo:count', c: 'stack' },
+        { f: 'demo:a_ptr', t: 'a:person', c: 'dangling' }
+      ],
+      console: null,
+      narr: {
+        sev: ['⚠ 悬垂诞生', 'red'], risky: 'risky',
+        title: 'a 返回：帧弹出，指针立即悬垂',
+        html: '<p><code>return a_ptr</code> 把 8 字节的地址值经寄存器带回 demo —— 注意被带回的只有<b>数字</b>，不是内存。</p><p>与此同时 a 的帧弹出：person 随帧消亡，String 的堆缓冲区 <code>0x5580e0</code> 也被释放。<code>0x7ff198</code> 现在指向“曾经的 person”。<b>*const Person 不携带生命周期信息，类型系统对此无能为力。</b></p>'
+      }
+    },
+    {
+      code: [21],
+      enter: ['frame:b', 'heap:B'],
+      frames: [demoFrame('dangling'), bFrameLive(null)],
+      heap: [heapB('ok', [{ label: '持有者 b.person（ptr = 0x7ff198）', cls: '' }])],
+      arrows: [
+        { f: 'demo:placeholder', t: 'demo:count', c: 'stack' },
+        { f: 'b:person:ptr', t: 'heap:B', c: 'heap' },
+        { f: 'demo:a_ptr', t: 'b:person', c: 'dangling' }
+      ],
+      console: null,
+      narr: {
+        sev: ['⚠ 依赖巧合', 'amber'], risky: 'warny',
+        title: '调用 b：新帧长在 a 的旧址上',
+        html: '<p>b 的帧压栈，运行时把同一片地址交给它——旧帧刚死，栈内存直接复用。<b>b 的 person 恰好落回 <code>0x7ff198</code></b>，也就是 a_ptr 存的那个地址。</p><p>这不是语言保证，而是最典型的实际情形之一：真实布局取决于编译器。但无论落在哪里，读到“错误数据”的本质都一样——<b>地址没有主人，只有内容</b>。</p>'
+      }
+    },
+    {
+      code: [24],
+      enter: ['slot:b:maybe'],
+      frames: [demoFrame('dangling'), bFrameLive('copied')],
+      heap: [heapB('ok', [
+        { label: '持有者 b.person（ptr = 0x7ff198）', cls: '' },
+        { label: '持有者 b.maybe（ptr = 0x7ff198）· 按位拷贝所得', cls: 'second' }
+      ])],
+      arrows: [
+        { f: 'demo:placeholder', t: 'demo:count', c: 'stack' },
+        { f: 'b:person', t: 'b:maybe', c: 'copy-dash' },
+        { f: 'b:person:ptr', t: 'heap:B', c: 'owner' },
+        { f: 'b:maybe:ptr', t: 'heap:B', c: 'copy' },
+        { f: 'demo:a_ptr', t: 'b:person', c: 'dangling' }
+      ],
+      console: null,
+      narr: {
+        sev: ['⚠ UB 发生', 'red'], risky: 'risky',
+        title: 'ptr::read：按位拷贝，读到了 b 的数据',
+        html: '<p><code>ptr::read::&lt;Person&gt;(0x7ff198)</code> 只做一件事：从该地址<b>按位拷贝 24 字节</b>。它不知道也不检查指针是否有效。</p><p>读出的 ptr / cap / len 正是 b 的 person 的值——<code>maybe.name</code> 与 <code>b.person.name</code> 指向<b>同一个堆缓冲区</b>。一份堆内存，两个“所有者”。</p>'
+      }
+    },
+    {
+      code: [25],
+      enter: [],
+      frames: [demoFrame('dangling'), bFrameLive('copied')],
+      heap: [heapB('ok', [
+        { label: '持有者 b.person（ptr = 0x7ff198）', cls: '' },
+        { label: '持有者 b.maybe（ptr = 0x7ff198）', cls: 'second' }
+      ])],
+      arrows: [
+        { f: 'demo:placeholder', t: 'demo:count', c: 'stack' },
+        { f: 'b:person:ptr', t: 'heap:B', c: 'owner' },
+        { f: 'b:maybe:ptr', t: 'heap:B', c: 'copy' },
+        { f: 'demo:a_ptr', t: 'b:person', c: 'dangling' }
+      ],
+      console: { out: CONSOLE_OUT, warn: '注意：打印出的 name 是 "b"——但这串比特本应属于已经消亡的 a。' },
+      narr: {
+        sev: ['⚠ 症状显现', 'red'], risky: 'risky',
+        title: 'println!：误读已发生，输出却看起来“很正常”',
+        html: '<p>终端打印：<code>人是：Person { name: "b" }</code>。串味了——读到的是 b 的名字，却被当作 a 留下的数据消费。</p><p><b>不崩溃、输出无错、野指针安静潜伏</b>，正是内存错误的可怕之处：症状与病因之间隔着好几层巧合。</p>'
+      }
+    },
+    {
+      code: [26],
+      enter: [],
+      frames: [demoFrame('dangling'), bFrameLive('copied forgotten')],
+      heap: [heapB('ok', [
+        { label: '持有者 b.person（ptr = 0x7ff198）', cls: '' },
+        { label: 'b.maybe 已被 forget · 不再析构', cls: 'borrowed' }
+      ])],
+      arrows: [
+        { f: 'demo:placeholder', t: 'demo:count', c: 'stack' },
+        { f: 'b:person:ptr', t: 'heap:B', c: 'owner' },
+        { f: 'b:maybe:ptr', t: 'heap:B', c: 'copy-dash' },
+        { f: 'demo:a_ptr', t: 'b:person', c: 'dangling' }
+      ],
+      console: { out: CONSOLE_OUT, warn: '' },
+      narr: {
+        sev: ['⚠ 自救失败', 'amber'], risky: 'warny',
+        title: 'mem::forget：躲过 double-free，换成另一种 UB',
+        html: '<p>如果此时 drop(maybe)，它会去释放 <code>0x5580e0</code>——而 b 的 person 结束时<b>也要释放同一块内存</b>：double free，程序当场崩溃。</p><p><code>mem::forget</code> 让 maybe 无人认领地蒸发，躲过了这一次崩溃。但“一份内存、两个所有者”的根源没有被解决，只是把 UB 推迟到别的时间与形态。</p>'
+      }
+    },
+    {
+      code: [28],
+      enter: ['frame:b~ghost'],
+      frames: [demoFrame('dangling'), bFrameGhost()],
+      heap: [heapB('freed', [{ label: '已释放（b.person 的 drop）', cls: 'borrowed' }])],
+      arrows: [
+        { f: 'demo:placeholder', t: 'demo:count', c: 'stack' },
+        { f: 'demo:a_ptr', t: 'b:person', c: 'dangling' }
+      ],
+      console: { out: CONSOLE_OUT, warn: '' },
+      narr: {
+        sev: ['⚠ 二次悬垂', 'red'], risky: 'risky',
+        title: 'b 返回：一切又被悬垂了一遍',
+        html: '<p>b 的帧弹出，堆缓冲区释放。<code>demo</code> 手里的 <code>a_ptr</code>（<code>0x7ff198</code>）再次指向死内存。</p><p>demo 从头到尾对发生的这一切<b>一无所知</b>：类型系统没有报警，运行没有崩溃，只有指针和内存的真相在暗中错位。</p>'
+      }
+    },
+    {
+      code: [17, 24, 26],
+      enter: [],
+      flash: true,
+      frames: [demoFrame('dangling'), bFrameGhost()],
+      heap: [heapB('freed', [{ label: '已释放（b.person 的 drop）', cls: 'borrowed' }])],
+      arrows: [
+        { f: 'demo:placeholder', t: 'demo:count', c: 'stack' },
+        { f: 'demo:a_ptr', t: 'b:person', c: 'dangling' }
+      ],
+      console: { out: CONSOLE_OUT, warn: '整个流程没有任何编译报错——这就是 unsafe 的代价。' },
+      narr: {
+        sev: ['📖 总结', 'blue'], risky: '',
+        title: '三重违规，编译器却全程沉默',
+        html: '<ul>' +
+          '<li><b>读悬垂指针</b>：a 返回后，0x7ff198 指向的栈内存已被 b 复用——use-after-free（栈上）。</li>' +
+          '<li class="bad"><b>按位拷贝绕过所有权</b>：ptr::read 凭空造出第二个 Person，maybe 与 b.person 共同持有同一堆资源。</li>' +
+          '<li class="bad"><b>mem::forget 打破 RAII</b>：析构链断开，谁负责 drop 全靠人脑推演。</li>' +
+          '</ul><p>结论：<code>unsafe</code> 块里，类型系统借给你的安全已全部收回，指针的生死必须由你亲自担保。想让机器替你抓此类问题，用 Miri：<code>cargo +nightly miri test</code> 会直接指出对已消亡栈帧的读取。</p>'
+      }
+    }
+  ];
+
+  /* ───────── 渲染 ───────── */
+  const stageGrid = document.getElementById('stageGrid');
+  const arrowLayer = document.getElementById('arrowLayer');
+  const stage = document.getElementById('stage');
+  const consoleEl = document.getElementById('console');
+  const consoleOut = document.getElementById('consoleOut');
+  const consoleWarn = document.getElementById('consoleWarn');
+  const narrTitle = document.getElementById('narrTitle');
+  const narrSev = document.getElementById('narrSev');
+  const narrText = document.getElementById('narrText');
+  const narrBox = document.getElementById('narration');
+  const stepLabel = document.getElementById('stepLabel');
+  const dotsBox = document.getElementById('dots');
+  const buttons = {
+    prev: document.getElementById('btnPrev'),
+    play: document.getElementById('btnPlay'),
+    next: document.getElementById('btnNext'),
+    reset: document.getElementById('btnReset')
+  };
+
+  let idx = (() => {
+    if (location.hash.includes('noanim')) document.documentElement.classList.add('no-anim');
+    const m = location.hash.match(/step=(\d+)/);
+    // hash 使用 1 基编号（step=1 ~ step=9），与圆点/标题显示一致
+    return m ? Math.min(Math.max(Number(m[1]) - 1, 0), STEPS.length - 1) : 0;
+  })();
+  let timer = null;
+
+  function setIdx(next, doScroll) {
+    idx = Math.min(Math.max(next, 0), STEPS.length - 1);
+    if (doScroll) window.history.replaceState(null, '', '#step=' + (idx + 1));
+    render(doScroll);
+  }
+
+  const esc = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+  function slotValueHTML(s) {
+    if (s.kind === 'person') {
+      const fc = s.fieldCls || '';
+      return `<div class="slot-fields">` +
+        `<div class="field ptr ${fc.indexOf('copied') >= 0 ? 'copied' : ''}" data-anchor="${s.uid}:ptr"><span>ptr</span><b>${esc(s.ptr)}</b></div>` +
+        `<div class="field cap ${fc.indexOf('forgotten') >= 0 ? 'forgotten' : ''}"><span>cap</span><b>${esc(s.cap)}</b></div>` +
+        `<div class="field len ${fc.indexOf('forgotten') >= 0 ? 'forgotten' : ''}"><span>len</span><b>${esc(s.len)}</b></div>` +
+        `</div>`;
+    }
+    const cls = s.cls.split(' ').filter(Boolean).join(' ');
+    return `<div class="slot-value ${cls}" data-anchor="${s.uid}">${esc(s.val)}</div>`;
+  }
+
+  function frameHTML(f, enterList) {
+    const enterKey = 'frame:' + f.id + (f.ghost ? '~ghost' : '');
+    const pop = enterList.includes(enterKey) ? ' pop-in' : '';
+    const ghostCls = f.ghost ? ' ghost' : '';
+    const slots = f.slots.map(s => {
+      s.uid = f.id + ':' + s.name;
+      const rowEnter = enterList.includes('slot:' + s.uid) ? ' pop-in' : '';
+      return `<div class="stack-slot ${s.rowCls || ''}${rowEnter}" data-key="slot:${s.uid}">` +
+        `<div class="slot-name">${esc(s.name)}<span class="slot-addr">${esc(s.addr)}</span></div>` +
+        slotValueHTML(s) +
+        `</div>`;
+    }).join('');
+    const note = f.ghost ? `<div class="frame-ghost-note">帧已弹出 · 内存可被复用（灰化仅为追踪地址）</div>` : '';
+    const reuse = f.reuse ? `<span class="reuse-chip">${esc(f.reuse)}</span>` : '';
+    return `<div class="frame${ghostCls}${pop}" data-key="${enterKey}">` +
+      `<div class="frame-title">${esc(f.title)} <small>${esc(f.range)}</small> ${reuse}</div>` +
+      slots + note + `</div>`;
+  }
+
+  function heapHTML(h) {
+    const freed = h.state === 'freed';
+    const dual = h.owners.length >= 2;
+    const cls = (freed ? ' freed' : '') + (dual && !freed ? ' dual' : '');
+    const cells = freed ? '?' : h.byte;
+    const chips = h.owners.map(o =>
+      `<span class="owner-chip ${o.cls}">${esc(o.label)}</span>`).join('<br>');
+    return `<div class="heap-block${cls}" data-key="heap:${h.id}">` +
+      `<div class="heap-title">${esc(h.title)}</div>` +
+      `<div class="heap-body">` +
+      `<div class="heap-cell" data-anchor="heap:${h.id}">${freed ? '?' : `'${esc(cells)}'`}</div>` +
+      `<div class="heap-meta">1 字节 · 地址 ${esc(h.addr)}${freed ? ' · 内容已不可信' : ''}</div>` +
+      chips +
+      `</div></div>`;
+  }
+
+  function render(doScroll) {
+    const st = STEPS[idx];
+
+    const stackHTML = `<div class="stack-region"><div class="region-label stack-label">栈 · 向下生长（高地址在上）</div>` +
+      st.frames.map(f => frameHTML(f, st.enter)).join('') +
+      `<div class="stack-direction">栈向下增长 ↓ 新帧在低地址</div></div>`;
+    const heapHTMLAll = `<div class="heap-region"><div class="region-label heap-label">堆 · String 缓冲区</div>` +
+      (st.heap.length ? st.heap.map(heapHTML).join('') : `<div class="heap-empty">（堆为空）</div>`) +
+      `</div>`;
+
+    stageGrid.innerHTML = stackHTML + heapHTMLAll;
+
+    // 控制台
+    if (st.console) {
+      consoleEl.hidden = false;
+      consoleOut.textContent = '$ cargo run\n' + st.console.out;
+      consoleWarn.textContent = st.console.warn || '';
+      consoleWarn.hidden = !st.console.warn;
+    } else {
+      consoleEl.hidden = true;
+    }
+
+    // 解说
+    narrTitle.textContent = `第 ${idx + 1} 步 · ${st.narr.title}`;
+    narrSev.textContent = st.narr.sev[0];
+    narrSev.className = 'sev ' + st.narr.sev[1];
+    narrText.innerHTML = st.narr.html;
+    narrBox.className = 'narration ' + (st.narr.risky || 'safe');
+
+    // 代码高亮
+    document.querySelectorAll('.code-line').forEach(el => {
+      const n = Number(el.dataset.n);
+      const isCurrent = !st.flash && st.code.includes(n);
+      const isFlash = !!st.flash && el.classList.contains('danger-line');
+      el.classList.toggle('current', isCurrent);
+      el.classList.toggle('flash-danger', isFlash);
+    });
+    if (doScroll) {
+      const firstCurrent = document.querySelector('.code-line.current');
+      if (firstCurrent) firstCurrent.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+
+    // 步进 UI
+    stepLabel.innerHTML = `第 <b>${idx + 1} / ${STEPS.length}</b> 步`;
+    document.querySelectorAll('.dot').forEach((d, i) => {
+      d.classList.toggle('active', i === idx);
+      d.classList.toggle('done', i < idx);
+    });
+    buttons.prev.disabled = idx === 0;
+    buttons.next.disabled = idx === STEPS.length - 1;
+
+    requestAnimationFrame(drawArrows);
+  }
+
+  /* ───────── 箭头层 ───────── */
+  function qAnchor(name) {
+    // 行级目标（栈槽整行）优先：data-key="slot:名字" ；其余解析叶子锚点
+    return document.querySelector(`.stack-slot[data-key="slot:${name}"]`) ||
+      document.querySelector(`[data-anchor="${name}"]`);
+  }
+
+  // 线段 + 末端同色三角箭头（不依赖 <marker>，任何浏览器渲染一致）
+  function lnkHTML(d, end, c2, cls) {
+    let vx = end[0] - c2[0], vy = end[1] - c2[1];
+    const vl = Math.hypot(vx, vy) || 1;
+    vx /= vl; vy /= vl;
+    const bx = end[0] - vx * 9, by = end[1] - vy * 9;
+    const nx = -vy, ny = vx;
+    const w = 4.6;
+    const head = `M ${end[0].toFixed(1)} ${end[1].toFixed(1)} L ${(bx + nx * w).toFixed(1)} ${(by + ny * w).toFixed(1)} L ${(bx - nx * w).toFixed(1)} ${(by - ny * w).toFixed(1)} z`;
+    return `<path class="lnk ${cls}" d="${d}"/>` +
+      `<path class="lnk-h ${cls}" d="${head}"/>`;
+  }
+
+  function drawArrows() {
+    const st = STEPS[idx];
+    if (!qc(st)) return;
+    const sRect = stage.getBoundingClientRect();
+    const w = Math.max(stage.scrollWidth, stage.offsetWidth);
+    const h = Math.max(stage.scrollHeight, stage.offsetHeight);
+    arrowLayer.setAttribute('viewBox', `0 0 ${w} ${h}`);
+    arrowLayer.setAttribute('width', w);
+    arrowLayer.setAttribute('height', h);
+
+    let html = '';
+    st.arrows.forEach((a, ai) => {
+      const fromEl = qAnchor(a.f);
+      const toEl = qAnchor(a.t);
+      if (!fromEl || !toEl) return;
+      const fr = fromEl.getBoundingClientRect();
+      const tr = toEl.getBoundingClientRect();
+      const sx = fr.right - sRect.left - 1;
+      const sy = fr.top - sRect.top + fr.height / 2;
+      const toHeap = a.t.startsWith('heap:');
+      const jit = ((ai % 3) - 1) * 5;
+
+      if (toHeap) {
+        // 栈 → 堆：宽屏横向贝塞尔；窄屏（堆在栈下方）改走纵向贝塞尔
+        const verticalBelow = tr.top - sRect.top > fr.bottom - sRect.top + 8;
+        if (verticalBelow) {
+          const jsx = ((ai % 3) - 1) * 7;
+          const sx2 = fr.left - sRect.left + fr.width * 0.5;
+          const sy2 = fr.bottom - sRect.top - 1;
+          const ex2 = tr.left - sRect.left + tr.width * 0.32 + jsx;
+          const ey2 = tr.top - sRect.top + 3;
+          const dy = Math.min(Math.max((ey2 - sy2) * 0.5, 42), 150);
+          html += lnkHTML(
+            `M ${sx2} ${sy2} C ${sx2} ${sy2 + dy}, ${ex2} ${ey2 - dy}, ${ex2} ${ey2}`,
+            [ex2, ey2], [ex2, ey2 - dy], a.c);
+        } else {
+          const ex = tr.left - sRect.left + 2;
+          const ey = tr.top - sRect.top + tr.height / 2 + jit;
+          const dx = Math.min(Math.max((ex - sx) * 0.5, 34), 150);
+          html += lnkHTML(
+            `M ${sx} ${sy} C ${sx + dx} ${sy}, ${ex - dx} ${ey}, ${ex} ${ey}`,
+            [ex, ey], [ex - dx, ey], a.c);
+        }
+      } else {
+        // 栈内：终点贴目标行右缘，箭头水平向左“触”到行的边界，曲线走两列之间的空档
+        const gapMax = window.innerWidth < 900 ? 50 : 64;
+        const ex = tr.right - sRect.left + 3;
+        const ey = tr.top - sRect.top + tr.height / 2 + jit;
+        const cx = Math.max(sx, ex) + Math.max(26, Math.min(gapMax, Math.abs(ey - sy) * 0.3 + 26));
+        html += lnkHTML(
+          `M ${sx} ${sy} C ${cx} ${sy}, ${cx} ${ey}, ${ex} ${ey}`,
+          [ex, ey], [cx, ey], a.c);
+      }
+    });
+    arrowLayer.innerHTML = html;
+  }
+  function qc(st) { return st && st.arrows; }
+  window.addEventListener('resize', drawArrows);
+
+  /* ───────── 播放控制 ───────── */
+  function stopPlay() {
+    if (timer) { clearTimeout(timer); timer = null; }
+    buttons.play.textContent = '▶ 自动播放';
+  }
+  function togglePlay() {
+    if (timer) { stopPlay(); return; }
+    buttons.play.textContent = '⏸ 暂停';
+    const tick = () => {
+      if (idx >= STEPS.length - 1) { stopPlay(); return; }
+      setIdx(idx + 1, true);
+      timer = setTimeout(tick, 2600);
+    };
+    timer = setTimeout(tick, 1400);
+  }
+
+  buttons.prev.addEventListener('click', () => { stopPlay(); setIdx(idx - 1, true); });
+  buttons.next.addEventListener('click', () => { stopPlay(); setIdx(idx + 1, true); });
+  buttons.reset.addEventListener('click', () => {
+    stopPlay();
+    setIdx(0, false);
+    history.replaceState(null, '', '#step=1');
+    window.scrollTo({ top: document.getElementById('workbench').offsetTop - 24, behavior: 'smooth' });
+  });
+  buttons.play.addEventListener('click', togglePlay);
+  document.addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'INPUT') return;
+    if (e.key === 'ArrowRight' && idx < STEPS.length - 1) { e.preventDefault(); stopPlay(); setIdx(idx + 1, true); }
+    else if (e.key === 'ArrowLeft' && idx > 0) { e.preventDefault(); stopPlay(); setIdx(idx - 1, true); }
+  });
+
+  // 进度点（显示 1–9，内部索引 0–8）
+  const titles = STEPS.map(s => s.narr.title);
+  dotsBox.innerHTML = STEPS.map((_, i) =>
+    `<button class="dot" type="button" title="第 ${i + 1} 步 · ${titles[i]}">${i + 1}</button>`).join('');
+  dotsBox.querySelectorAll('.dot').forEach((d, i) => d.addEventListener('click', () => { stopPlay(); setIdx(i, true); }));
+
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => requestAnimationFrame(drawArrows));
+  render(false);
+})();
+</script>
+</body>
+</html>
