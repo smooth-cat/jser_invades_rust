@@ -1,4 +1,4 @@
-use std::ptr;
+use std::{mem, ptr};
 use crate::data::Person;
 
 pub fn demo() {
@@ -30,9 +30,10 @@ pub fn can_read() {
 
   // 所有权转移
   let mut person_2 = person;
+  let tom = String::from("Tom");
 
   // mem::drop(person_2.name);
-  person_2.name = String::from("Tom");
+  person_2.name = tom;
   person_2.age = 1;
 
   unsafe {
@@ -40,10 +41,17 @@ pub fn can_read() {
     let old_person: Person = ptr::read(person_ptr);
 
     // 理论上能读出原数据
-    println!("old_person: {:?}", old_person);
+    println!("old_person: {:?}\n", old_person);
 
     std::mem::forget(old_person); 
   }
 
-  println!("person_2: {:?}", person_2);
+  println!("person_2: {:?}\n\n\n\n", person_2);
+}
+
+pub fn clone(target: &Person) -> Person {
+  return Person { 
+    name: target.name.clone(), 
+    age: target.age 
+  };
 }

@@ -7,7 +7,7 @@ fn owner_move() {
   // 所有权转移
   let y = x;
 
-  mem::drop(y);
+  // mem::drop(y);
 }
 
 #[allow(unused)]
@@ -20,13 +20,15 @@ fn owner_copy() {
   // ...
 }
 
-/*----------------- 函数传参、返回值 也有所有权操作 -----------------*/
+/*----------------- 函数传参、返回值 也会发生所有权操作 -----------------*/
 pub fn fn_move() {
   let s1 = String::from("hello");
 
   let s2 = do_move(s1);
   
   println!("{}", s2);
+
+  // mem::drop(s2);
 }
 
 fn do_move(mut s: String) -> String {
