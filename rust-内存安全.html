@@ -515,33 +515,29 @@ strong { color: #f0f6fc; }
   <div class="code-panel" aria-label="被动画演示的 Rust 源代码">
     <div class="code-title"><b>src/ob_01_unsafe.rs</b> · 当前执行行随动画联动</div>
     <div class="code-line" data-n="1"><span class="ln">1</span><span class="kw">fn</span> <span class="fn">demo</span>() {</div>
-    <div class="code-line" data-n="2"><span class="ln">2</span>  <span class="cm">// 生成一个占位符让 a, b 函数结构一致</span></div>
-    <div class="code-line" data-n="3"><span class="ln">3</span>  <span class="kw">let</span> count = <span class="ty">0</span>;</div>
-    <div class="code-line" data-n="4"><span class="ln">4</span>  <span class="kw">let</span> placeholder = &amp;count <span class="kw">as</span> *<span class="kw">const</span> <span class="ty">i32</span>;</div>
-    <div class="code-line" data-n="5"><span class="ln">5</span></div>
-    <div class="code-line" data-n="6"><span class="ln">6</span>  <span class="cm">// 执行 a 获取一个指针</span></div>
-    <div class="code-line" data-n="7"><span class="ln">7</span>  <span class="kw">let</span> a_ptr = <span class="fn">a</span>(placeholder);</div>
+    <div class="code-line" data-n="2"><span class="ln">2</span>  <span class="cm">// 执行 a 获取一个指针</span></div>
+    <div class="code-line" data-n="3"><span class="ln">3</span>  <span class="kw">let</span> a_ptr = <span class="fn">a</span>(&amp;<span class="ty">1</span>);</div>
+    <div class="code-line" data-n="4"><span class="ln">4</span></div>
+    <div class="code-line" data-n="5"><span class="ln">5</span>  <span class="cm">// 执行 b 读取指针指向的数据</span></div>
+    <div class="code-line" data-n="6"><span class="ln">6</span>  <span class="fn">b</span>(a_ptr);</div>
+    <div class="code-line" data-n="7"><span class="ln">7</span>}</div>
     <div class="code-line" data-n="8"><span class="ln">8</span></div>
-    <div class="code-line" data-n="9"><span class="ln">9</span>  <span class="cm">// 执行 b 读取指针指向的数据</span></div>
-    <div class="code-line" data-n="10"><span class="ln">10</span>  <span class="fn">b</span>(a_ptr);</div>
-    <div class="code-line" data-n="11"><span class="ln">11</span>}</div>
-    <div class="code-line" data-n="12"><span class="ln">12</span></div>
-    <div class="code-line" data-n="13"><span class="ln">13</span><span class="kw">fn</span> <span class="fn">a</span>(placeholder: *<span class="kw">const</span> <span class="ty">i32</span>) -&gt; *<span class="kw">const</span> <span class="ty">Person</span> {</div>
-    <div class="code-line" data-n="14"><span class="ln">14</span>  <span class="kw">let</span> person = <span class="ty">Person</span> { name: <span class="ty">String</span>::<span class="fn">from</span>(<span class="str">"a"</span>) };</div>
-    <div class="code-line" data-n="15"><span class="ln">15</span>  <span class="kw">let</span> a_ptr = &amp;person <span class="kw">as</span> *<span class="kw">const</span> <span class="ty">Person</span>;</div>
-    <div class="code-line" data-n="16"><span class="ln">16</span>  <span class="cm">// 返回指向 a 调用帧的指针</span></div>
-    <div class="code-line danger-line" data-n="17"><span class="ln">17</span>  <span class="kw">return</span> a_ptr;<span class="warn-flag">⚠ 指针逃逸调用帧</span></div>
-    <div class="code-line" data-n="18"><span class="ln">18</span>}</div>
-    <div class="code-line" data-n="19"><span class="ln">19</span></div>
-    <div class="code-line" data-n="20"><span class="ln">20</span><span class="kw">fn</span> <span class="fn">b</span>(a_ptr: *<span class="kw">const</span> <span class="ty">Person</span>) {</div>
-    <div class="code-line" data-n="21"><span class="ln">21</span>  <span class="kw">let</span> person = <span class="ty">Person</span> { name: <span class="ty">String</span>::<span class="fn">from</span>(<span class="str">"b"</span>) };</div>
-    <div class="code-line" data-n="22"><span class="ln">22</span>  <span class="kw">unsafe</span> {</div>
-    <div class="code-line" data-n="23"><span class="ln">23</span>    <span class="cm">// 从 a_ptr 读出数据</span></div>
-    <div class="code-line danger-line" data-n="24"><span class="ln">24</span>    <span class="kw">let</span> maybe = <span class="ty">ptr</span>::<span class="mcr">read</span>::&lt;<span class="ty">Person</span>&gt;(a_ptr);<span class="warn-flag">⚠ 按位读悬垂地址</span></div>
-    <div class="code-line" data-n="25"><span class="ln">25</span>    <span class="ty">println</span>!(<span class="str">"人是：{:?}"</span>, maybe);</div>
-    <div class="code-line danger-line" data-n="26"><span class="ln">26</span>    <span class="ty">mem</span>::<span class="fn">forget</span>(maybe);<span class="warn-flag">⚠ 打破 RAII</span></div>
-    <div class="code-line" data-n="27"><span class="ln">27</span>  }</div>
-    <div class="code-line" data-n="28"><span class="ln">28</span>}</div>
+    <div class="code-line" data-n="9"><span class="ln">9</span><span class="kw">fn</span> <span class="fn">a</span>(placeholder: *<span class="kw">const</span> <span class="ty">i32</span>) -&gt; *<span class="kw">const</span> <span class="ty">Person</span> {</div>
+    <div class="code-line" data-n="10"><span class="ln">10</span>  <span class="kw">let</span> person = <span class="ty">Person</span> { name: <span class="ty">String</span>::<span class="fn">from</span>(<span class="str">"a"</span>) };</div>
+    <div class="code-line" data-n="11"><span class="ln">11</span>  <span class="kw">let</span> a_ptr = &amp;person <span class="kw">as</span> *<span class="kw">const</span> <span class="ty">Person</span>;</div>
+    <div class="code-line" data-n="12"><span class="ln">12</span>  <span class="cm">// 返回指向 a 调用帧的指针</span></div>
+    <div class="code-line danger-line" data-n="13"><span class="ln">13</span>  <span class="kw">return</span> a_ptr;<span class="warn-flag">⚠ 指针逃逸调用帧</span></div>
+    <div class="code-line" data-n="14"><span class="ln">14</span>}</div>
+    <div class="code-line" data-n="15"><span class="ln">15</span></div>
+    <div class="code-line" data-n="16"><span class="ln">16</span><span class="kw">fn</span> <span class="fn">b</span>(a_ptr: *<span class="kw">const</span> <span class="ty">Person</span>) {</div>
+    <div class="code-line" data-n="17"><span class="ln">17</span>  <span class="kw">let</span> person = <span class="ty">Person</span> { name: <span class="ty">String</span>::<span class="fn">from</span>(<span class="str">"b"</span>) };</div>
+    <div class="code-line" data-n="18"><span class="ln">18</span>  <span class="kw">unsafe</span> {</div>
+    <div class="code-line" data-n="19"><span class="ln">19</span>    <span class="cm">// 从 a_ptr 读出数据</span></div>
+    <div class="code-line danger-line" data-n="20"><span class="ln">20</span>    <span class="kw">let</span> maybe = <span class="ty">ptr</span>::<span class="mcr">read</span>::&lt;<span class="ty">Person</span>&gt;(a_ptr);<span class="warn-flag">⚠ 按位读悬垂地址</span></div>
+    <div class="code-line" data-n="21"><span class="ln">21</span>    <span class="ty">println</span>!(<span class="str">"人是：{:?}"</span>, maybe);</div>
+    <div class="code-line danger-line" data-n="22"><span class="ln">22</span>    <span class="ty">mem</span>::<span class="fn">forget</span>(maybe);<span class="warn-flag">⚠ 打破 RAII</span></div>
+    <div class="code-line" data-n="23"><span class="ln">23</span>  }</div>
+    <div class="code-line" data-n="24"><span class="ln">24</span>}</div>
     <div class="code-hint">⚠ 三处 <b>danger 行</b>：指针逃逸 · 按位误读 · forget 丢所有权。动画步进时当前行会高亮并自动滚动。</div>
   </div>
 
@@ -613,22 +609,18 @@ strong { color: #f0f6fc; }
   const hb = (id, title, addr, byte, owners, state) => ({ id, title, addr, byte, owners, state });
 
   const demoFrame = (aPtrState) => {
-    const slots = [
-      sv('count', '0', '0x7ff1e0', ''),
-      sv('placeholder', '0x7ff1e0', '0x7ff1d8', 'stack-p')
-    ];
-    if (aPtrState) slots.push(sv('a_ptr', '0x7ff198', '0x7ff1d0', aPtrState));
-    return fr('demo', 'demo() 调用帧', '0x7ff1d0 – 0x7ff1e4', slots);
+    const slots = aPtrState ? [sv('a_ptr', '0x7ff198', '0x7ff1e0', aPtrState)] : [];
+    return fr('demo', 'demo() 调用帧', '0x7ff1e0 – 0x7ff1e8', slots);
   };
 
   const aFrameLive = () => fr('a', 'a() 调用帧', '0x7ff190 – 0x7ff1c7', [
-    sv('placeholder', '0x7ff1e0', '0x7ff1c0', 'stack-p'),
+    sv('placeholder', '0x102000（.rodata）', '0x7ff1c0', 'stack-p'),
     sp('person', '0x7ff198', '0x5580e0', 'heap-p', '1', '1'),
     sv('a_ptr', '0x7ff198', '0x7ff190', 'stack-p')
   ]);
 
   const aFrameGhost = () => fr('a', 'a() 调用帧', '0x7ff190 – 0x7ff1c7', [
-    sv('placeholder', '0x7ff1e0', '0x7ff1c0', 'dim'),
+    sv('placeholder', '0x102000（.rodata）', '0x7ff1c0', 'dim'),
     sp('person', '0x7ff198', '0x5580e0', 'heap-p', '1', '1', '', 'dim'),
     sv('a_ptr', '0x7ff198', '0x7ff190', 'dim')
   ], true);
@@ -659,26 +651,11 @@ strong { color: #f0f6fc; }
 
   const STEPS = [
     {
-      code: [4],
-      enter: [],
-      frames: [demoFrame(null)],
-      heap: [],
-      arrows: [{ f: 'demo:placeholder', t: 'demo:count', c: 'stack' }],
-      console: null,
-      narr: {
-        sev: ['安全', 'green'], risky: 'safe',
-        title: 'demo 帧建立：占位符就位',
-        html: '<p>demo 自己的帧里有 <code>count = 0</code>。<code>placeholder</code> 只是 <code>&amp;count</code> 的裸指针，值为 <code>0x7ff1e0</code>——它本身完全合法，函数 a、b 都拿它当“参数摆设”，只为让两个函数结构一致。</p>'
-      }
-    },
-    {
-      code: [15],
+      code: [11],
       enter: ['frame:a', 'heap:A'],
       frames: [demoFrame(null), aFrameLive()],
       heap: [heapA('ok')],
       arrows: [
-        { f: 'demo:placeholder', t: 'demo:count', c: 'stack' },
-        { f: 'a:placeholder', t: 'demo:count', c: 'stack' },
         { f: 'a:person:ptr', t: 'heap:A', c: 'heap' },
         { f: 'a:a_ptr', t: 'a:person', c: 'stack' }
       ],
@@ -686,16 +663,15 @@ strong { color: #f0f6fc; }
       narr: {
         sev: ['安全', 'green'], risky: 'safe',
         title: '调用 a：person 建在 a 自己的栈帧上',
-        html: '<p>a 的帧压栈后，<code>person { name: String::from("a") }</code> 在 a 帧内成形：栈上 24 字节（ptr / cap / len），ptr 指向堆缓冲区 <code>0x5580e0</code>。</p><p><code>a_ptr = &amp;person</code>，值为 <code>0x7ff198</code>——指向 a 自己帧里的 person。此刻一切合法：指针的作用域仍被借用检查“圈”在 a 帧之内。</p><p>小注：本页槽位按“先声明、地址更高”的惯例排画（demo 帧同此）；编译器对帧内变量的具体位置不做顺序保证，此处取最常见情形，不影响逻辑。</p>'
+        html: '<p><code>&amp;1</code> 是<b>常量提升</b>：字面量 <code>1</code> 被放进只读的 .rodata 静态区，<code>placeholder</code> 拿到的 <code>0x102000</code> 不占任何栈帧——它只是让 a、b 函数结构一致的摆设参数。</p><p>a 的帧压栈后，<code>person { name: String::from("a") }</code> 在 a 帧内成形：栈上 24 字节（ptr / cap / len），ptr 指向堆缓冲区 <code>0x5580e0</code>。<code>a_ptr = &amp;person</code>（值 <code>0x7ff198</code>）此刻完全合法：指针的作用域仍被借用检查“圈”在 a 帧之内。</p><p>小注：本页槽位按“先声明、地址更高”的惯例排画；编译器对帧内变量的具体位置不做顺序保证。</p>'
       }
     },
     {
-      code: [18],
+      code: [14],
       enter: ['slot:demo:a_ptr'],
       frames: [demoFrame('dangling recv'), aFrameGhost()],
       heap: [heapA('freed', [{ label: '已释放 · a.person 的 drop 已执行', cls: 'borrowed' }])],
       arrows: [
-        { f: 'demo:placeholder', t: 'demo:count', c: 'stack' },
         { f: 'demo:a_ptr', t: 'a:person', c: 'dangling' }
       ],
       console: null,
@@ -706,12 +682,11 @@ strong { color: #f0f6fc; }
       }
     },
     {
-      code: [21],
+      code: [17],
       enter: ['frame:b', 'heap:B'],
       frames: [demoFrame('dangling'), bFrameLive(null)],
       heap: [heapB('ok', [{ label: '持有者 b.person（ptr = 0x7ff198）', cls: '' }])],
       arrows: [
-        { f: 'demo:placeholder', t: 'demo:count', c: 'stack' },
         { f: 'b:person:ptr', t: 'heap:B', c: 'heap' },
         { f: 'demo:a_ptr', t: 'b:person', c: 'dangling' }
       ],
@@ -723,7 +698,7 @@ strong { color: #f0f6fc; }
       }
     },
     {
-      code: [24],
+      code: [20],
       enter: ['slot:b:maybe'],
       frames: [demoFrame('dangling'), bFrameLive('copied')],
       heap: [heapB('ok', [
@@ -731,7 +706,6 @@ strong { color: #f0f6fc; }
         { label: '持有者 b.maybe（ptr = 0x7ff198）· 按位拷贝所得', cls: 'second' }
       ])],
       arrows: [
-        { f: 'demo:placeholder', t: 'demo:count', c: 'stack' },
         { f: 'b:person', t: 'b:maybe', c: 'copy-dash' },
         { f: 'b:person:ptr', t: 'heap:B', c: 'owner' },
         { f: 'b:maybe:ptr', t: 'heap:B', c: 'copy' },
@@ -745,7 +719,7 @@ strong { color: #f0f6fc; }
       }
     },
     {
-      code: [25],
+      code: [21],
       enter: [],
       frames: [demoFrame('dangling'), bFrameLive('copied')],
       heap: [heapB('ok', [
@@ -753,7 +727,6 @@ strong { color: #f0f6fc; }
         { label: '持有者 b.maybe（ptr = 0x7ff198）', cls: 'second' }
       ])],
       arrows: [
-        { f: 'demo:placeholder', t: 'demo:count', c: 'stack' },
         { f: 'b:person:ptr', t: 'heap:B', c: 'owner' },
         { f: 'b:maybe:ptr', t: 'heap:B', c: 'copy' },
         { f: 'demo:a_ptr', t: 'b:person', c: 'dangling' }
@@ -766,7 +739,7 @@ strong { color: #f0f6fc; }
       }
     },
     {
-      code: [26],
+      code: [22],
       enter: [],
       frames: [demoFrame('dangling'), bFrameLive('copied forgotten')],
       heap: [heapB('ok', [
@@ -774,7 +747,6 @@ strong { color: #f0f6fc; }
         { label: 'b.maybe 已被 forget · 不再析构', cls: 'borrowed' }
       ])],
       arrows: [
-        { f: 'demo:placeholder', t: 'demo:count', c: 'stack' },
         { f: 'b:person:ptr', t: 'heap:B', c: 'owner' },
         { f: 'b:maybe:ptr', t: 'heap:B', c: 'copy-dash' },
         { f: 'demo:a_ptr', t: 'b:person', c: 'dangling' }
@@ -787,12 +759,11 @@ strong { color: #f0f6fc; }
       }
     },
     {
-      code: [28],
+      code: [24],
       enter: ['frame:b~ghost'],
       frames: [demoFrame('dangling'), bFrameGhost()],
       heap: [heapB('freed', [{ label: '已释放（b.person 的 drop）', cls: 'borrowed' }])],
       arrows: [
-        { f: 'demo:placeholder', t: 'demo:count', c: 'stack' },
         { f: 'demo:a_ptr', t: 'b:person', c: 'dangling' }
       ],
       console: { out: CONSOLE_OUT, warn: '' },
@@ -803,13 +774,12 @@ strong { color: #f0f6fc; }
       }
     },
     {
-      code: [17, 24, 26],
+      code: [13, 20, 22],
       enter: [],
       flash: true,
       frames: [demoFrame('dangling'), bFrameGhost()],
       heap: [heapB('freed', [{ label: '已释放（b.person 的 drop）', cls: 'borrowed' }])],
       arrows: [
-        { f: 'demo:placeholder', t: 'demo:count', c: 'stack' },
         { f: 'demo:a_ptr', t: 'b:person', c: 'dangling' }
       ],
       console: { out: CONSOLE_OUT, warn: '整个流程没有任何编译报错——这就是 unsafe 的代价。' },
@@ -886,7 +856,9 @@ strong { color: #f0f6fc; }
         slotValueHTML(s) +
         `</div>`;
     }).join('');
-    const note = f.ghost ? `<div class="frame-ghost-note">帧已弹出 · 内存可被复用（灰化仅为追踪地址）</div>` : '';
+    const note = f.ghost
+      ? `<div class="frame-ghost-note">帧已弹出 · 内存可被复用（灰化仅为追踪地址）</div>`
+      : (f.slots.length ? '' : `<div class="frame-ghost-note">（尚无局部变量 —— 等待 a 的返回值）</div>`);
     const reuse = f.reuse ? `<span class="reuse-chip">${esc(f.reuse)}</span>` : '';
     return `<div class="frame${ghostCls}${pop}" data-key="${enterKey}">` +
       `<div class="frame-title">${esc(f.title)} <small>${esc(f.range)}</small> ${reuse}</div>` +

@@ -1,7 +1,7 @@
 use demo::mut_rang;
 use demo::ob_02_ownership;
 use demo::ob_03_fn_move;
-use demo::ob_05_life_circle;
+use demo::ob_06_life_circle;
 
 fn main() {
   ob_03_fn_move::demo();

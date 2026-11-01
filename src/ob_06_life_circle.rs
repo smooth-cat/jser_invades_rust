@@ -1,5 +1,7 @@
 use std::mem;
-/*----------------- 不可返回函数自己产生的指针 -----------------*/
+
+use crate::ob_05_r_w::count_up;
+/*----------------- 不能返回函数自己产生的指针 -----------------*/
 fn no_return_self_ref() {
   let s = 32;
   let ptr = &s;
@@ -7,39 +9,50 @@ fn no_return_self_ref() {
   // return ptr; 
 }
 
-/*----------------- 自动推导生命周期 -----------------*/
-pub fn auto_infer(v: &str) -> &str {
+/*----------------- 只能返回传入指针， 自动推导生命周期 -----------------*/
+pub fn auto_infer(v: &i32) -> &i32 {
   return v;
 }
 
-/*----------------- 手动标注 -----------------*/
-/**
- * 为什么需要标注
- * 有些生命周期运行时才能确定， 但生命周期是编译时概念
- * 通过生命周期标注来 消除不确定性
- */
-fn longest<'a>(x: &'a str, y: &'a str) -> &'a str {
-  if x.len() > y.len() { x } else { y }
+pub fn demo() {
+  let p2: &i32;
+  {
+    let a = 10;
+    let p = &a;
+    p2 = auto_infer(p);
+    println!("{}", p2);
+  }
 }
 
-pub fn life_shrink() {
-  let s1 = String::from("long string is long");
-  let result;
-  {
-    let s2 = String::from("xyz");
-    /*
-      https://doc.rust-lang.org/rust-by-example/scope/lifetime/lifetime_coercion.html#coercion
-      把长生命周期 当做 短生命周期使用
-      把 's1 生命周期当成 's2
-      为什么可以？ 
-      s1 实际在函数内可用，被当成 在块内可用
-      longest 在块内调用，参数在块内活着就 OK
-    */
-    result = longest(s1.as_str(), s2.as_str());
-  }
-  // println!("The longest string is {}", result);
-  println!("s1: {}", s1);
+/*----------------- 手动标注 -----------------*/
+fn either(x: &i32, y: &i32) -> &i32 {
+  // count 可能是 1 或 2，每次运行都不一样
+  let count = count_up(); 
+  if count == 1 {
+    return x
+  } 
+  y
 }
+
+pub fn prize() { 
+  let p;
+
+  let v1 = 648;
+  let x = &v1;
+  {
+    let v2 = 888;
+    let y = &v2;
+    p = either(x, y); 
+    println!("{}", p);
+  }
+}
+
+fn only_x<'a>(x: &'a i32, y: &i32) -> &'a i32 {
+  println!("{y}");
+  return x;
+}
+
+
 
 /*----------------- 标注生命周期大小 与实际有冲突时 -----------------*/
 pub fn conflict_life_circle() {
