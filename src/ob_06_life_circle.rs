@@ -1,16 +1,35 @@
 use std::mem;
 
 use crate::ob_05_r_w::count_up;
-/*----------------- 不能返回函数自己产生的指针 -----------------*/
-fn no_return_self_ref() {
+
+/*----------------- 所有者 不用标记生命周期-----------------*/
+fn do_move(mut s: String) -> String {
+  s.push_str(" world!");
+  s
+}
+
+pub fn fn_move() {
+  let s1 = String::from("hello");
+
+  let s2 = do_move(s1);
+  
+  println!("{}", s2);
+
+  // mem::drop(s2);
+}
+
+
+
+/*----------------- 不能返回函数内产生的指针 -----------------*/
+fn no_return_inner_ptr() {
   let s = 32;
   let ptr = &s;
-  // 错误，所有者 s 只能活到函数结束，ptr 就被释放
-  // return ptr; 
+  // return ptr;
 }
 
 /*----------------- 只能返回传入指针， 自动推导生命周期 -----------------*/
-pub fn auto_infer(v: &i32) -> &i32 {
+pub fn return_arg(v: &i32) -> &i32 {
+  // ...
   return v;
 }
 
@@ -19,79 +38,64 @@ pub fn demo() {
   {
     let a = 10;
     let p = &a;
-    p2 = auto_infer(p);
+    p2 = return_arg(p);
     println!("{}", p2);
   }
 }
 
 /*----------------- 手动标注 -----------------*/
-fn either(x: &i32, y: &i32) -> &i32 {
-  // count 可能是 1 或 2，每次运行都不一样
-  let count = count_up(); 
-  if count == 1 {
-    return x
-  } 
-  y
+// fn either(x: &i32, y: &i32) -> &i32 {
+//   // count 可能是 1 或 2，每次运行都不一样
+//   let count = count_up(); 
+//   if count == 1 {
+//     return x
+//   } 
+//   y
+// }
+
+// pub fn prize() { 
+//   let p;
+
+//   let v1 = 648;
+//   let x = &v1;
+//   {
+//     let v2 = 888;
+//     let y = &v2;
+//     // let z = x;
+//     p = either(x, y); 
+//     println!("{}", p);
+//   }
+// }
+
+// fn only_x<'a>(x: &'a i32, y: &i32) -> &'a i32 {
+//   println!("{y}");
+//   return x;
+// }
+
+
+/*----------------- 结构体、特征 生命周期 -----------------*/
+// 定义带生命周期的结构体
+struct Cat<'a> {
+  name: &'a str,
 }
 
-pub fn prize() { 
-  let p;
+// pub fn trait_life_circle<'x>() -> Cat<'x> {
 
-  let v1 = 648;
-  let x = &v1;
-  {
-    let v2 = 888;
-    let y = &v2;
-    p = either(x, y); 
-    println!("{}", p);
-  }
+//   let tom = String::from("tom");
+
+//   let tom_cat = Cat { name: &tom };
+  
+//   return tom_cat;
+// }
+
+// 定义带生命周期的泛型
+trait Name<'a> {
+  fn get_name(&self) -> &'a str;
 }
-
-fn only_x<'a>(x: &'a i32, y: &i32) -> &'a i32 {
-  println!("{y}");
-  return x;
-}
-
-
-
-/*----------------- 标注生命周期大小 与实际有冲突时 -----------------*/
-pub fn conflict_life_circle() {
-  let s1 = String::from("long life");
-  let result;
-  {
-    let s2 = String::from("xyz");
-    // 任何获得更长 变量都可以 视为 活的更短的变量来使用
-    result = shorter(s1.as_str(), s2.as_str());
+impl<'b> Name<'b> for Cat<'b> {
+  fn get_name(&self) -> &'b str {
+    return &self.name;
   }
-  // println!("The shorter life string is \"{}\"", result);
-}
-
-// 'a <= 'b
-fn shorter<'a, 'b: 'a>(_a: &'a str, _b: &'b str) -> &'a str {
-  println!("_b: {}", _b);
-  return _a;
-}
-
-/*----------------- 结构体、Trait 生命周期 -----------------*/
-pub fn trait_life_circle() {
-  // 定义带生命周期的结构体
-  struct TempPerson<'a> {
-    name: &'a str,
-  }
-
-  // 定义带生命周期的泛型
-  trait Name<'a> {
-    fn get_name(&self) -> &'a str;
-  }
-  // 实现时将泛型 'b 传给 trait 和 TempPerson 即可
-  impl<'b> Name<'b> for TempPerson<'b> {
-    fn get_name(&self) -> &'b str {
-      return &self.name;
-    }
-  }
-
-  let person = TempPerson { name: "tom" };
-  println!("{}", person.get_name());
 }
 
 /*----------------- 闭包生命周期 -----------------*/
