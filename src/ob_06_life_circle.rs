@@ -44,51 +44,42 @@ pub fn demo() {
 }
 
 /*----------------- 手动标注 -----------------*/
-// fn either(x: &i32, y: &i32) -> &i32 {
-//   // count 可能是 1 或 2，每次运行都不一样
-//   let count = count_up(); 
-//   if count == 1 {
-//     return x
-//   } 
-//   y
-// }
+fn either<'a>(x: &'a i32, y: &'a i32) -> &'a i32 {
+  // count 可能是 1 或 2，每次运行都不一样
+  let count = count_up(); 
+  if count == 1 {
+    return x
+  } 
+  y
+}
 
-// pub fn prize() { 
-//   let p;
+pub fn prize() { 
+  let p;
 
-//   let v1 = 648;
-//   let x = &v1;
-//   {
-//     let v2 = 888;
-//     let y = &v2;
-//     // let z = x;
-//     p = either(x, y); 
-//     println!("{}", p);
-//   }
-// }
+  let v1 = 648;
+  let x = &v1;
+  {
+    let v2 = 888;
+    let y = &v2;
+    // let z = x;
+    p = either(x, y); 
+    println!("{}", p);
+  }
+}
 
-// fn only_x<'a>(x: &'a i32, y: &i32) -> &'a i32 {
-//   println!("{y}");
-//   return x;
-// }
+fn only_x<'a>(x: &'a i32, y: &i32) -> &'a i32 {
+  println!("{y}");
+  return x;
+}
 
 
 /*----------------- 结构体、特征 生命周期 -----------------*/
-// 定义带生命周期的结构体
+// 结构体可用范围 不能超过 包含的指针
 struct Cat<'a> {
   name: &'a str,
 }
 
-// pub fn trait_life_circle<'x>() -> Cat<'x> {
-
-//   let tom = String::from("tom");
-
-//   let tom_cat = Cat { name: &tom };
-  
-//   return tom_cat;
-// }
-
-// 定义带生命周期的泛型
+// 关联特征生和结构体的生命周期
 trait Name<'a> {
   fn get_name(&self) -> &'a str;
 }
@@ -97,6 +88,17 @@ impl<'b> Name<'b> for Cat<'b> {
     return &self.name;
   }
 }
+
+// pub fn struct_live_shortest<'x>() -> Cat<'x> {
+
+//   let tom = String::from("tom");
+
+//   let tom_cat = Cat { name: &tom };
+  
+//   return tom_cat;
+// }
+
+
 
 /*----------------- 闭包生命周期 -----------------*/
 /*----------------- 1. 返回值 与 入参相关 -----------------*/
